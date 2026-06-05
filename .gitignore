@@ -1,0 +1,7 @@
+.idea
+build
+python/data
+python/data2
+python/blob.blob
+python/__pycache__
+go.sum
