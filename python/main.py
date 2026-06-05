@@ -5,7 +5,7 @@ from pathlib import Path
 from loader import BlobSession
 from data_generator import generate_random_files, tree_compare_same
 
-if __name__ == '__main__':
+def main():
     data_dir = f"{Path(__file__).parent}{os.sep}data"
     result_dir = data_dir + "2"
     blob_path = f"{Path(__file__).parent}{os.sep}blob.blob"
@@ -39,3 +39,7 @@ if __name__ == '__main__':
         print("Data 1 to 1 reproduced")
     else:
         print("Failed to verify that data was correctly reproduced")
+
+
+if __name__ == '__main__':
+    main()

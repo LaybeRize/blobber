@@ -3,6 +3,18 @@ package main
 /*
 #include <stdlib.h>
 #include <stdint.h>
+
+// just a typedef — no header needed, pure C type syntax
+typedef void (*WriteCallback)(const char*);
+typedef const char* (*ReadCallback)();
+
+static void write_callback(WriteCallback cb, const char* s) {
+    cb(s);
+}
+
+static const char* read_callback(ReadCallback cb) {
+	return cb();
+}
 */
 import "C"
 import (
@@ -13,10 +25,15 @@ import (
 const (
 	ErrorEnd C.int64_t = iota
 	ErrorContinuing
+
+	BufferSize        = 1024 * 1024
+	BufferAssumedSize = 1 << 28
 )
 
 var hashBuffer [1024]byte
 var statisticsBuffer [1024]byte
+var streamingValues *[]string
+var generalTextBuffer [BufferSize + 1]byte
 
 // BlobOpen opens a file handle for reading or writing.
 // Exactly one of readFile / writeFile must be a non-empty string.
@@ -119,6 +136,35 @@ func GetError(
 		*hasNext = ErrorContinuing
 	}
 	return ptr
+}
+
+//export StreamArrayToPython
+func StreamArrayToPython(
+	callback C.WriteCallback, // [in]
+) {
+	if streamingValues == nil {
+		return
+	}
+	for _, s := range *streamingValues {
+		cStr := C.CString(s)
+		C.write_callback(callback, cStr)
+		C.free(unsafe.Pointer(cStr))
+	}
+}
+
+//export StreamArrayFromPython
+func StreamArrayFromPython(
+	callback C.ReadCallback, // [in]
+) {
+	stream := make([]string, 0)
+	for {
+		cStr := C.read_callback(callback)
+		if cStr == nil {
+			break
+		}
+		stream = append(stream, C.GoString(cStr))
+	}
+	streamingValues = &stream
 }
 
 // -----------------------------------------------------------------------------

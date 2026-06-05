@@ -48,7 +48,15 @@ def _load_lib() -> ctypes.CDLL:
 
     # char* GetError(int64_t* hasNext);
     lib.GetError.argtypes = [ctypes.POINTER(ctypes.c_int64)]
-    lib.GetError.restype = ctypes.c_void_p
+    lib.GetError.restype = ctypes.POINTER(ctypes.c_char_p)
+
+    # void StreamArrayToPython(WriteCallback callback);
+    lib.StreamArrayToPython.argtypes = [ctypes.CFUNCTYPE(None, ctypes.c_char_p)]
+    lib.StreamArrayToPython.restype = None
+
+    # void StreamArrayFromPython(ReadCallback callback);
+    lib.StreamArrayFromPython.argtypes = [ctypes.CFUNCTYPE(ctypes.c_char_p)]
+    lib.StreamArrayFromPython.restype = None
 
     return lib
 
@@ -167,6 +175,34 @@ class BlobSession:
             raise RuntimeError(self.__read_error())
 
         return hash_ptr.value.decode("UTF-8")
+
+    def __read_array(self) -> list[str]:
+        callback = ctypes.CFUNCTYPE(None, ctypes.c_char_p)
+
+        results = []
+        def collect(s):
+            results.append(s.decode("utf-8"))
+
+        cb_col = callback(collect)
+        self._lib.StreamArrayToPython(cb_col)
+
+        return results
+
+    def __write_array(self, strings: list[str]) -> None:
+        callback = ctypes.CFUNCTYPE(ctypes.c_char_p)
+
+        results = [ctypes.create_string_buffer(val.encode("UTF-8")) for val in strings]
+        index = 0
+
+        def distribute():
+            nonlocal index
+            if index < len(results):
+                index += 1
+                return ctypes.addressof(results[index - 1])
+            return None
+
+        cb_col = callback(distribute)
+        self._lib.StreamArrayFromPython(cb_col)
 
     def __read_error(self) -> str:
         has_next = ctypes.c_int64(1)

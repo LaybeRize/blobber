@@ -8,19 +8,18 @@ import (
 	"os"
 )
 
-const BufferSize = 1024 * 1024
-const ChunkSize = 4 * 1024 * 1024
-const BufferAssumedSize = 1 << 28
-const rcOK int64 = 1
-const rcErr int64 = 0
 const (
+	ChunkSize = 4 * 1024 * 1024
+
+	rcOK  int64 = 1
+	rcErr int64 = 0
+
 	SkippedFile int64 = iota - 1
 	FileUnchanged
 	FileChanged
 )
 
 var errorMsg = ""
-var generalTextBuffer [BufferSize + 1]byte
 
 var currentReadFile *DecompressionWriter
 var currentWriteFile *CompressionWriter
