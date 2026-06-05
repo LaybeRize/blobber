@@ -3,9 +3,13 @@ package main
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
+	"math/rand"
 	"os"
+	"path"
+	"slices"
 )
 
 const (
@@ -17,9 +21,16 @@ const (
 	SkippedFile int64 = iota - 1
 	FileUnchanged
 	FileChanged
+
+	letterBytes        = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	randomStringLength = 8
 )
 
 var errorMsg = ""
+
+// -----------------------------------------------------------------------------
+// DIRECT CALL FUNCTIONS
+// -----------------------------------------------------------------------------
 
 var currentReadFile *DecompressionWriter
 var currentWriteFile *CompressionWriter
@@ -172,6 +183,60 @@ func BlobCloseWithStatisticsGo() (int64, string) {
 }
 
 // -----------------------------------------------------------------------------
+// MANAGER FUNCTIONS
+// -----------------------------------------------------------------------------
+
+var currentOverviewPath string
+var currentOverview *RepositoryOverview
+var currentRepo *RepositoryManifest
+var currentVersion *VersionManifest
+
+func LoadOverviewGo(path string) int64 {
+	currentOverview = &RepositoryOverview{
+		RepositoryNames: make([]string, 0),
+		RepositoryPaths: make([]string, 0),
+	}
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		currentOverviewPath = path
+		return rcOK
+	}
+	err := currentOverview.StreamFromFile(path)
+	if err != nil {
+		currentOverview = nil
+		return setErr(fmt.Sprintf("LoadOverview: %v", err))
+	}
+	currentOverviewPath = path
+	return rcOK
+}
+
+func CloseOverviewGo() int64 {
+	dir := path.Dir(currentOverviewPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return setErr(fmt.Sprintf("CloseOverview: failed to create file directory '%s' : %v", dir, err))
+	}
+	err := currentOverview.StreamToFile(currentOverviewPath)
+	if err != nil {
+		return setErr(fmt.Sprintf("CloseOverview: %v", err))
+	}
+	if currentRepo != nil {
+		dir += path.Join(dir,
+			currentOverview.RepositoryPaths[slices.Index(currentOverview.RepositoryNames, currentRepo.RepositoryName)])
+		err = currentRepo.StreamToFile(dir + ".repo")
+	}
+	if err != nil {
+		return setErr(fmt.Sprintf("CloseOverview: %v", err))
+	}
+	if currentVersion != nil {
+		dir += "-" + currentRepo.VersionPaths[slices.Index(currentRepo.VersionNames, currentVersion.VersionName)]
+		err = currentVersion.StreamToFile(dir + ".version")
+	}
+	if err != nil {
+		return setErr(fmt.Sprintf("CloseOverview: %v", err))
+	}
+	return rcOK
+}
+
+// -----------------------------------------------------------------------------
 // HELPER FUNCTIONS
 // -----------------------------------------------------------------------------
 
@@ -204,4 +269,12 @@ func hashFile(path string) (string, error) {
 	}
 
 	return hex.EncodeToString(h.Sum(nil)), nil
+}
+
+func RandString() string {
+	b := make([]byte, randomStringLength)
+	for i := range b {
+		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
+	}
+	return string(b)
 }

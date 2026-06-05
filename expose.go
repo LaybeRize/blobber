@@ -35,6 +35,10 @@ var statisticsBuffer [1024]byte
 var streamingValues *[]string
 var generalTextBuffer [BufferSize + 1]byte
 
+// -----------------------------------------------------------------------------
+// DIRECT CALL FUNCTIONS
+// -----------------------------------------------------------------------------
+
 // BlobOpen opens a file handle for reading or writing.
 // Exactly one of readFile / writeFile must be a non-empty string.
 // If opening for write the compression string is not allowed to be null pointer (but is allowed to be an empty string)
@@ -120,22 +124,24 @@ func BlobCloseWithStatistics(
 	return C.int64_t(retCode)
 }
 
-// GetError exposes the error byte buffer to the user that wants to read on it.
-// If hasNext != 0 there is still more text to read in the error message.
+// -----------------------------------------------------------------------------
+// MANAGER FUNCTIONS
+// -----------------------------------------------------------------------------
 
-//export GetError
-func GetError(
-	hasNext *C.int64_t, // [out]
-) *C.char {
-	var ptr *C.char
-	var fits bool
-	ptr, errorMsg, fits = writeToConstString(errorMsg)
-	if fits {
-		*hasNext = ErrorEnd
-	} else {
-		*hasNext = ErrorContinuing
+//export LoadOverview
+func LoadOverview(
+	path *C.char, // [in]
+) C.int64_t {
+	retCode := LoadOverviewGo(C.GoString(path))
+	if retCode == rcOK {
+		streamingValues = &currentOverview.RepositoryNames
 	}
-	return ptr
+	return C.int64_t(retCode)
+}
+
+//export CloseOverview
+func CloseOverview() C.int64_t {
+	return C.int64_t(CloseOverviewGo())
 }
 
 //export StreamArrayToPython
@@ -170,6 +176,24 @@ func StreamArrayFromPython(
 // -----------------------------------------------------------------------------
 // HELPER FUNCTIONS
 // -----------------------------------------------------------------------------
+
+// GetError exposes the error byte buffer to the user that wants to read on it.
+// If hasNext != 0 there is still more text to read in the error message.
+
+//export GetError
+func GetError(
+	hasNext *C.int64_t, // [out]
+) *C.char {
+	var ptr *C.char
+	var fits bool
+	ptr, errorMsg, fits = writeToConstString(errorMsg)
+	if fits {
+		*hasNext = ErrorEnd
+	} else {
+		*hasNext = ErrorContinuing
+	}
+	return ptr
+}
 
 func writeToConstString(text string) (*C.char, string, bool) {
 	var fits bool
