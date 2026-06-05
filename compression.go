@@ -163,3 +163,31 @@ func (d *DecompressionWriter) close() error {
 	d.dec.Close()
 	return d.in.Close()
 }
+
+func ReadFromFile(path string, readerFunc func(reader io.Reader) error) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	dec, err := zstd.NewReader(f, zstd.WithDecoderConcurrency(1))
+	if err != nil {
+		return err
+	}
+	defer dec.Close()
+	return readerFunc(dec)
+}
+
+func ReadToFile(path string, writerFunc func(reader io.Writer) error) error {
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	enc, err := zstd.NewWriter(f, zstd.WithEncoderLevel(zstd.SpeedBetterCompression))
+	if err != nil {
+		return err
+	}
+	defer enc.Close()
+	return writerFunc(enc)
+}
