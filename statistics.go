@@ -50,6 +50,13 @@ type RepositoryManifest struct {
 	VersionPaths   []string `json:"versionPaths"`
 }
 
+func (r *RepositoryManifest) GetPath(name string) *string {
+	if pos := slices.Index(r.VersionNames, name); pos != -1 {
+		return &(r.VersionPaths[pos])
+	}
+	return nil
+}
+
 func (r *RepositoryManifest) StreamToFile(path string) error {
 	return ReadToFile(path, func(writer io.Writer) error {
 		return json.NewEncoder(writer).Encode(r)
@@ -65,6 +72,13 @@ func (r *RepositoryManifest) StreamFromFile(path string) error {
 type RepositoryOverview struct {
 	RepositoryNames []string `json:"repositoryNames"`
 	RepositoryPaths []string `json:"repositoryPaths"`
+}
+
+func (r *RepositoryOverview) GetPath(name string) *string {
+	if pos := slices.Index(r.RepositoryNames, name); pos != -1 {
+		return &(r.RepositoryPaths[pos])
+	}
+	return nil
 }
 
 func (r *RepositoryOverview) StreamToFile(path string) error {
