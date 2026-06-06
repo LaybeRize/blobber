@@ -23,17 +23,15 @@ import (
 )
 
 const (
-	ErrorEnd C.int64_t = iota
-	ErrorContinuing
-
 	BufferSize        = 1024 * 1024
+	BufferTruncation  = 3
 	BufferAssumedSize = 1 << 28
 )
 
 var hashBuffer [1024]byte
 var statisticsBuffer [1024]byte
 var streamingValues *[]string
-var generalTextBuffer [BufferSize + 1]byte
+var generalTextBuffer [BufferSize + BufferTruncation + 1]byte
 
 // -----------------------------------------------------------------------------
 // DIRECT CALL FUNCTIONS
@@ -178,37 +176,23 @@ func StreamArrayFromPython(
 // -----------------------------------------------------------------------------
 
 // GetError exposes the error byte buffer to the user that wants to read on it.
-// If hasNext != 0 there is still more text to read in the error message.
+// If the error message would be longer then 1MiB it gets truncated with ...\x00 at the 1 MiB border
 
 //export GetError
-func GetError(
-	hasNext *C.int64_t, // [out]
-) *C.char {
-	var ptr *C.char
-	var fits bool
-	ptr, errorMsg, fits = writeToConstString(errorMsg)
-	if fits {
-		*hasNext = ErrorEnd
+func GetError() *C.char {
+	var n int
+	if len(errorMsg) > BufferSize {
+		n = copy(generalTextBuffer[:], errorMsg[:BufferSize])
+		for range BufferTruncation {
+			generalTextBuffer[n] = '.'
+			n++
+		}
 	} else {
-		*hasNext = ErrorContinuing
+		n = copy(generalTextBuffer[:], errorMsg)
 	}
-	return ptr
-}
-
-func writeToConstString(text string) (*C.char, string, bool) {
-	var fits bool
-	if len(text) > BufferSize {
-		copy(generalTextBuffer[:], text[:BufferSize])
-		generalTextBuffer[BufferSize] = 0
-		text = text[BufferSize:]
-		fits = false
-	} else {
-		fits = true
-		n := copy(generalTextBuffer[:], text)
-		generalTextBuffer[n] = 0
-		text = ""
-	}
-	return (*C.char)(unsafe.Pointer(&generalTextBuffer[0])), text, fits
+	generalTextBuffer[n] = 0
+	errorMsg = ""
+	return (*C.char)(unsafe.Pointer(&generalTextBuffer[0]))
 }
 
 func readDoublePointer(ptr **C.char) *string {

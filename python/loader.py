@@ -46,8 +46,8 @@ def _load_lib() -> ctypes.CDLL:
     lib.BlobCloseWithStatistics.argtypes = [ctypes.POINTER(ctypes.c_char_p)]
     lib.BlobCloseWithStatistics.restype = ctypes.c_int64
 
-    # char* GetError(int64_t* hasNext);
-    lib.GetError.argtypes = [ctypes.POINTER(ctypes.c_int64)]
+    # char* GetError();
+    lib.GetError.argtypes = []
     lib.GetError.restype = ctypes.POINTER(ctypes.c_char_p)
 
     # void StreamArrayToPython(WriteCallback callback);
@@ -205,11 +205,6 @@ class BlobSession:
         self._lib.StreamArrayFromPython(cb_col)
 
     def __read_error(self) -> str:
-        has_next = ctypes.c_int64(1)
-        result = ""
-
-        while has_next.value:
-            txt_ptr = self._lib.GetError(ctypes.byref(has_next))
-            result += ctypes.string_at(txt_ptr).decode("utf-8")
-
+        txt_ptr = self._lib.GetError()
+        result = ctypes.string_at(txt_ptr).decode("utf-8")
         return result
