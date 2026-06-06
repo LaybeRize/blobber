@@ -2,13 +2,15 @@ package main
 
 import (
 	"crypto/sha256"
+	"encoding/base64"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"os"
 	"path"
+	"time"
 )
 
 const (
@@ -20,9 +22,6 @@ const (
 	SkippedFile int64 = iota - 1
 	FileUnchanged
 	FileChanged
-
-	letterBytes        = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	randomStringLength = 8
 )
 
 var errorMsg = ""
@@ -242,6 +241,39 @@ func CloseOverviewGo() int64 {
 	return rcOK
 }
 
+func RegisterNewRepositoryGo(repoName string) int64 {
+	if currentOverview == nil {
+		return setErr("RegisterNewRepository: can't register a repository without an open overview")
+	}
+	if currentOverview.GetPath(repoName) != nil {
+		return setErr("RegisterNewRepository: name for new repo already taken")
+	}
+
+	err := closeRepo()
+	if err != nil {
+		return setErr(fmt.Sprintf(
+			"RegisterNewRepository: error while trying to close previously loaded repo: %v", err))
+	}
+	err = closeVersion()
+	if err != nil {
+		return setErr(fmt.Sprintf(
+			"RegisterNewRepository: error while trying to close previously loaded version: %v", err))
+	}
+
+	repoPath := timestampBase64()
+	currentOverview.RegisterRepository(repoName, repoPath)
+	currentRepo = &RepositoryManifest{
+		RepositoryName: repoName,
+		VersionNames:   make([]string, 0),
+		VersionPaths:   make([]string, 0),
+	}
+	return rcOK
+}
+
+// -----------------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -----------------------------------------------------------------------------
+
 func closeRepo() error {
 	if currentRepo == nil {
 		return nil
@@ -263,10 +295,6 @@ func closeVersion() error {
 			*currentRepo.GetPath(currentVersion.VersionName) +
 			VersionSuffix)
 }
-
-// -----------------------------------------------------------------------------
-// HELPER FUNCTIONS
-// -----------------------------------------------------------------------------
 
 func setErr(errMsg string) int64 {
 	errorMsg = errMsg
@@ -299,10 +327,10 @@ func hashFile(path string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func RandString() string {
-	b := make([]byte, randomStringLength)
-	for i := range b {
-		b[i] = letterBytes[rand.Int63()%int64(len(letterBytes))]
-	}
-	return string(b)
+var timeEncoder = base64.NewEncoding("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-+").WithPadding('#')
+
+func timestampBase64() string {
+	buf := make([]byte, 8)
+	binary.BigEndian.PutUint64(buf, uint64(time.Now().UnixNano()))
+	return timeEncoder.EncodeToString(buf)
 }

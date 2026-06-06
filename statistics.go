@@ -81,6 +81,11 @@ func (r *RepositoryOverview) GetPath(name string) *string {
 	return nil
 }
 
+func (r *RepositoryOverview) RegisterRepository(name string, path string) {
+	r.RepositoryNames = append(r.RepositoryNames, name)
+	r.RepositoryPaths = append(r.RepositoryPaths, path)
+}
+
 func (r *RepositoryOverview) StreamToFile(path string) error {
 	return ReadToFile(path, func(writer io.Writer) error {
 		return json.NewEncoder(writer).Encode(r)
