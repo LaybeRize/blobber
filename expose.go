@@ -1,3 +1,5 @@
+//go:build !cli
+
 package main
 
 /*
@@ -142,6 +144,10 @@ func CloseOverview() C.int64_t {
 	return C.int64_t(CloseOverviewGo())
 }
 
+// -----------------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -----------------------------------------------------------------------------
+
 //export StreamArrayToPython
 func StreamArrayToPython(
 	callback C.WriteCallback, // [in]
@@ -170,10 +176,6 @@ func StreamArrayFromPython(
 	}
 	streamingValues = &stream
 }
-
-// -----------------------------------------------------------------------------
-// HELPER FUNCTIONS
-// -----------------------------------------------------------------------------
 
 // GetError exposes the error byte buffer to the user that wants to read on it.
 // If the error message would be longer then 1MiB it gets truncated with ...\x00 at the 1 MiB border
