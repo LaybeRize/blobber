@@ -194,6 +194,7 @@ const (
 	OverviewName     = "general.overview"
 	RepositorySuffix = ".repo"
 	VersionSuffix    = ".version"
+	BlobSuffix       = ".blob"
 )
 
 func LoadOverviewGo(overviewFolder string) int64 {
@@ -238,6 +239,7 @@ func CloseOverviewGo() int64 {
 	currentOverview = nil
 	currentRepo = nil
 	currentVersion = nil
+	previousVersion = nil
 	return rcOK
 }
 
@@ -267,6 +269,50 @@ func RegisterNewRepositoryGo(repoName string) int64 {
 		VersionNames:   make([]string, 0),
 		VersionPaths:   make([]string, 0),
 	}
+	currentVersion = nil
+	previousVersion = nil
+	return rcOK
+}
+
+func RegisterNewVersionGo(versionName string) int64 {
+	if currentOverview == nil || currentRepo == nil {
+		return setErr("RegisterNewVersion: can't register a version without an open overview + repo")
+	}
+	if currentRepo.GetPath(versionName) != nil {
+		return setErr("RegisterNewVersion: version name already taken")
+	}
+
+	err := closeVersion()
+	if err != nil {
+		return setErr(fmt.Sprintf(
+			"RegisterNewVersion: error while trying to close previously loaded version: %v", err))
+	}
+
+	versionPath := timestampBase64()
+	currentVersion = &VersionManifest{
+		VersionName:     versionPath,
+		PreviousVersion: nil,
+		BlobPath:        versionPath,
+		Created:         uint64(time.Now().UnixNano()),
+		Files:           make([]FileManifest, 0),
+	}
+	previousVersion = nil
+	return rcOK
+}
+
+func LoadAndSetPreviousVersionGo(oldVersionName string) int64 {
+	if currentVersion == nil {
+		return setErr("LoadAndSetPreviousVersion: can't set a previous version on something that isn't loaded")
+	}
+	if currentRepo.GetPath(oldVersionName) == nil {
+		return setErr("LoadAndSetPreviousVersion: given name for previous version could not be found")
+	}
+	previousVersion = &VersionManifest{}
+	err := previousVersion.StreamFromFile(getVersionPathFrom(oldVersionName))
+	if err != nil {
+		return setErr(fmt.Sprintf("LoadAndSetPreviousVersion: failed to load previous version: %v", err))
+	}
+	currentVersion.PreviousVersion = &oldVersionName
 	return rcOK
 }
 
@@ -278,22 +324,40 @@ func closeRepo() error {
 	if currentRepo == nil {
 		return nil
 	}
-	return currentRepo.StreamToFile(
-		path.Join(currentOverviewFolder,
-			*currentOverview.GetPath(currentRepo.RepositoryName)) +
-			RepositorySuffix)
+	return currentRepo.StreamToFile(getRepoPath())
+}
+
+func getRepoPath() string {
+	return path.Join(currentOverviewFolder,
+		*currentOverview.GetPath(currentRepo.RepositoryName)) +
+		RepositorySuffix
 }
 
 func closeVersion() error {
 	if currentVersion == nil {
 		return nil
 	}
-	return currentVersion.StreamToFile(
-		path.Join(currentOverviewFolder,
-			*currentOverview.GetPath(currentRepo.RepositoryName)) +
-			"_" +
-			*currentRepo.GetPath(currentVersion.VersionName) +
-			VersionSuffix)
+	return currentVersion.StreamToFile(getVersionPath())
+}
+
+func getVersionPath() string {
+	return getVersionPathFrom(currentVersion.VersionName)
+}
+
+func getVersionPathFrom(versionName string) string {
+	return path.Join(currentOverviewFolder,
+		*currentOverview.GetPath(currentRepo.RepositoryName)) +
+		"_" +
+		*currentRepo.GetPath(versionName) +
+		VersionSuffix
+}
+
+func getVersionBlob() string {
+	return path.Join(currentOverviewFolder,
+		*currentOverview.GetPath(currentRepo.RepositoryName)) +
+		"_" +
+		*currentRepo.GetPath(currentVersion.VersionName) +
+		BlobSuffix
 }
 
 func setErr(errMsg string) int64 {
