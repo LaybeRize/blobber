@@ -9,7 +9,6 @@ import (
 	"math/rand"
 	"os"
 	"path"
-	"slices"
 )
 
 const (
@@ -186,54 +185,83 @@ func BlobCloseWithStatisticsGo() (int64, string) {
 // MANAGER FUNCTIONS
 // -----------------------------------------------------------------------------
 
-var currentOverviewPath string
+var currentOverviewFolder string
 var currentOverview *RepositoryOverview
 var currentRepo *RepositoryManifest
+var previousVersion *VersionManifest
 var currentVersion *VersionManifest
 
-func LoadOverviewGo(path string) int64 {
+const (
+	OverviewName     = "general.overview"
+	RepositorySuffix = ".repo"
+	VersionSuffix    = ".version"
+)
+
+func LoadOverviewGo(overviewFolder string) int64 {
+	overviewPath := path.Join(overviewFolder, OverviewName)
 	currentOverview = &RepositoryOverview{
 		RepositoryNames: make([]string, 0),
 		RepositoryPaths: make([]string, 0),
 	}
-	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
-		currentOverviewPath = path
+	if _, err := os.Stat(overviewPath); errors.Is(err, os.ErrNotExist) {
+		currentOverviewFolder = overviewFolder
 		return rcOK
 	}
-	err := currentOverview.StreamFromFile(path)
+	err := currentOverview.StreamFromFile(overviewPath)
 	if err != nil {
 		currentOverview = nil
 		return setErr(fmt.Sprintf("LoadOverview: %v", err))
 	}
-	currentOverviewPath = path
+	currentOverviewFolder = overviewFolder
 	return rcOK
 }
 
 func CloseOverviewGo() int64 {
-	dir := path.Dir(currentOverviewPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return setErr(fmt.Sprintf("CloseOverview: failed to create file directory '%s' : %v", dir, err))
+	if currentOverview == nil {
+		return setErr("CloseOverview: can't close an overview that is not open.")
 	}
-	err := currentOverview.StreamToFile(currentOverviewPath)
+	if err := os.MkdirAll(currentOverviewFolder, 0755); err != nil {
+		return setErr(fmt.Sprintf("CloseOverview: failed to create file directory '%s' : %v",
+			currentOverviewFolder, err))
+	}
+	err := currentOverview.StreamToFile(path.Join(currentOverviewFolder, OverviewName))
 	if err != nil {
 		return setErr(fmt.Sprintf("CloseOverview: %v", err))
 	}
-	if currentRepo != nil {
-		dir += path.Join(dir,
-			currentOverview.RepositoryPaths[slices.Index(currentOverview.RepositoryNames, currentRepo.RepositoryName)])
-		err = currentRepo.StreamToFile(dir + ".repo")
-	}
+	err = closeRepo()
 	if err != nil {
 		return setErr(fmt.Sprintf("CloseOverview: %v", err))
 	}
-	if currentVersion != nil {
-		dir += "-" + currentRepo.VersionPaths[slices.Index(currentRepo.VersionNames, currentVersion.VersionName)]
-		err = currentVersion.StreamToFile(dir + ".version")
-	}
+	err = closeVersion()
 	if err != nil {
 		return setErr(fmt.Sprintf("CloseOverview: %v", err))
 	}
+	currentOverview = nil
+	currentRepo = nil
+	currentVersion = nil
 	return rcOK
+}
+
+func closeRepo() error {
+	if currentRepo == nil {
+		return nil
+	}
+	return currentRepo.StreamToFile(
+		path.Join(currentOverviewFolder,
+			*currentOverview.GetPath(currentRepo.RepositoryName)) +
+			RepositorySuffix)
+}
+
+func closeVersion() error {
+	if currentVersion == nil {
+		return nil
+	}
+	return currentVersion.StreamToFile(
+		path.Join(currentOverviewFolder,
+			*currentOverview.GetPath(currentRepo.RepositoryName)) +
+			"_" +
+			*currentRepo.GetPath(currentVersion.VersionName) +
+			VersionSuffix)
 }
 
 // -----------------------------------------------------------------------------
