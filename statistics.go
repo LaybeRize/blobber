@@ -44,6 +44,14 @@ func (r *VersionManifest) StreamFromFile(path string) error {
 	})
 }
 
+func (r *VersionManifest) GetFileMap() map[string]*FileManifest {
+	res := make(map[string]*FileManifest)
+	for _, m := range r.Files {
+		res[m.FilePath] = &m
+	}
+	return res
+}
+
 type RepositoryManifest struct {
 	RepositoryName string   `json:"repositoryName"`
 	VersionNames   []string `json:"versionNames"`

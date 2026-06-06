@@ -187,8 +187,9 @@ func BlobCloseWithStatisticsGo() (int64, string) {
 var currentOverviewFolder string
 var currentOverview *RepositoryOverview
 var currentRepo *RepositoryManifest
-var previousVersion *VersionManifest
 var currentVersion *VersionManifest
+var previousVersion *VersionManifest
+var previousFilesMap map[string]*FileManifest
 
 const (
 	OverviewName     = "general.overview"
@@ -240,6 +241,7 @@ func CloseOverviewGo() int64 {
 	currentRepo = nil
 	currentVersion = nil
 	previousVersion = nil
+	previousFilesMap = nil
 	return rcOK
 }
 
@@ -271,6 +273,38 @@ func RegisterNewRepositoryGo(repoName string) int64 {
 	}
 	currentVersion = nil
 	previousVersion = nil
+	previousFilesMap = nil
+	return rcOK
+}
+
+func LoadRepositoryGo(repoName string) int64 {
+	if currentOverview == nil {
+		return setErr("LoadRepository: can't register a repository without an open overview")
+	}
+	if currentOverview.GetPath(repoName) == nil {
+		return setErr(fmt.Sprintf("LoadRepository: repo with given name '%s' does not exist", repoName))
+	}
+
+	err := closeRepo()
+	if err != nil {
+		return setErr(fmt.Sprintf(
+			"LoadRepository: error while trying to close previously loaded repo: %v", err))
+	}
+	err = closeVersion()
+	if err != nil {
+		return setErr(fmt.Sprintf(
+			"LoadRepository: error while trying to close previously loaded version: %v", err))
+	}
+
+	currentRepo = &RepositoryManifest{
+		RepositoryName: repoName,
+	}
+	err = currentRepo.StreamFromFile(getRepoPath())
+	currentVersion = nil
+	if err != nil {
+		currentRepo = nil
+		return setErr(fmt.Sprintf("LoadRepository: failed while trying to load specified repo: %v", err))
+	}
 	return rcOK
 }
 
@@ -297,6 +331,8 @@ func RegisterNewVersionGo(versionName string) int64 {
 		Files:           make([]FileManifest, 0),
 	}
 	previousVersion = nil
+	previousFilesMap = nil
+
 	return rcOK
 }
 
@@ -310,8 +346,11 @@ func LoadAndSetPreviousVersionGo(oldVersionName string) int64 {
 	previousVersion = &VersionManifest{}
 	err := previousVersion.StreamFromFile(getVersionPathFrom(oldVersionName))
 	if err != nil {
+		previousVersion = nil
+		previousFilesMap = nil
 		return setErr(fmt.Sprintf("LoadAndSetPreviousVersion: failed to load previous version: %v", err))
 	}
+	previousFilesMap = previousVersion.GetFileMap()
 	currentVersion.PreviousVersion = &oldVersionName
 	return rcOK
 }
