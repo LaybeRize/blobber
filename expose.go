@@ -9,6 +9,7 @@ package main
 // just a typedef — no header needed, pure C type syntax
 typedef void (*WriteCallback)(const char*);
 typedef const char* (*ReadCallback)();
+typedef void (*StatCallback)(int64_t, uint64_t);
 
 static void write_callback(WriteCallback cb, const char* s) {
     cb(s);
@@ -16,6 +17,10 @@ static void write_callback(WriteCallback cb, const char* s) {
 
 static const char* read_callback(ReadCallback cb) {
 	return cb();
+}
+
+static void stat_callback(ReadCallback cb, int64_t f, uint64_t b) {
+	cb(f, b);
 }
 */
 import "C"
@@ -117,7 +122,7 @@ func BlobClose() C.int64_t {
 
 //export BlobCloseWithStatistics
 func BlobCloseWithStatistics(
-	compressionRate **C.char, // [in/out] If pre-allocated at least 10-byte
+	compressionRate **C.char, // [out] If pre-allocated at least 10-byte
 ) C.int64_t {
 	retCode, statistics := BlobCloseWithStatisticsGo()
 	writeDoublePointer(compressionRate, &statisticsBuffer[0], statistics)
@@ -144,12 +149,83 @@ func CloseOverview() C.int64_t {
 	return C.int64_t(CloseOverviewGo())
 }
 
+//export RegisterNewRepository
+func RegisterNewRepository(
+	repositoryName *C.char, // [in]
+) C.int64_t {
+	return C.int64_t(RegisterNewRepositoryGo(C.GoString(repositoryName)))
+}
+
+//export LoadRepository
+func LoadRepository(
+	repositoryName *C.char, // [in]
+) C.int64_t {
+	return C.int64_t(LoadRepositoryGo(C.GoString(repositoryName)))
+}
+
+//export RegisterNewVersion
+func RegisterNewVersion(
+	versionName *C.char, // [in]
+) C.int64_t {
+	return C.int64_t(RegisterNewVersionGo(C.GoString(versionName)))
+}
+
+//export LoadAndSetPreviousVersion
+func LoadAndSetPreviousVersion(
+	previousVersionName *C.char, // [in]
+) C.int64_t {
+	return C.int64_t(LoadAndSetPreviousVersionGo(C.GoString(previousVersionName)))
+}
+
+//export WriteToVersion
+func WriteToVersion(
+	compression *C.int64_t, // [in]
+	callback C.ReadCallback, // [in]
+	bytesProcessed *C.uint64_t, // [out]
+	compressionRate **C.char, // [out] If pre-allocated at least 10-byte
+) C.int64_t {
+	retCode := StartWriteToVersionGo((*int64)(unsafe.Pointer(compression)))
+	if retCode != rcOK {
+		return C.int64_t(retCode)
+	}
+	*bytesProcessed = 0
+	for {
+		cStr := C.read_callback(callback)
+		if cStr == nil {
+			break
+		}
+		retCode, _ = TryWritingToVersionGo(C.GoString(cStr), (*uint64)(unsafe.Pointer(bytesProcessed)))
+		if retCode != rcOK {
+			return C.int64_t(retCode)
+		}
+	}
+	retCode, statistics := StopWriteToVersionGo()
+	writeDoublePointer(compressionRate, &statisticsBuffer[0], statistics)
+	return C.int64_t(retCode)
+}
+
+// Important Notice: Before this function is called StreamArrayFrom() must be called with the
+// list of file patterns to Read, even if the list is empty, so that the internally kept array that is used
+// in the function is cleaned up. If StreamArrayFrom() is not called before, the function might not behave
+// as expected.
+
+//export ReadFromVersion
+func ReadFromVersion(
+	overwriteExistingFiles C.int64_t, // [in]
+	callback C.StatCallback, // [in]
+) C.int64_t {
+	internalCallback := func(filesWritten int64, bytesWritten uint64) {
+		C.stat_callback(callback, C.int64_t(filesWritten), C.uint64_t(bytesWritten))
+	}
+	return C.int64_t(ReadFromVersionGo(*streamingValues, overwriteExistingFiles != 0, &internalCallback))
+}
+
 // -----------------------------------------------------------------------------
 // HELPER FUNCTIONS
 // -----------------------------------------------------------------------------
 
-//export StreamArrayToPython
-func StreamArrayToPython(
+//export StreamArrayFromDLL
+func StreamArrayFromDLL(
 	callback C.WriteCallback, // [in]
 ) {
 	if streamingValues == nil {
@@ -162,8 +238,8 @@ func StreamArrayToPython(
 	}
 }
 
-//export StreamArrayFromPython
-func StreamArrayFromPython(
+//export StreamArrayToDLL
+func StreamArrayToDLL(
 	callback C.ReadCallback, // [in]
 ) {
 	stream := make([]string, 0)

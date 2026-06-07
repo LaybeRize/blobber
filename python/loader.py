@@ -50,13 +50,13 @@ def _load_lib() -> ctypes.CDLL:
     lib.GetError.argtypes = []
     lib.GetError.restype = ctypes.POINTER(ctypes.c_char_p)
 
-    # void StreamArrayToPython(WriteCallback callback);
-    lib.StreamArrayToPython.argtypes = [ctypes.CFUNCTYPE(None, ctypes.c_char_p)]
-    lib.StreamArrayToPython.restype = None
+    # void StreamArrayFromDLL(WriteCallback callback);
+    lib.StreamArrayFromDLL.argtypes = [ctypes.CFUNCTYPE(None, ctypes.c_char_p)]
+    lib.StreamArrayFromDLL.restype = None
 
-    # void StreamArrayFromPython(ReadCallback callback);
-    lib.StreamArrayFromPython.argtypes = [ctypes.CFUNCTYPE(ctypes.c_char_p)]
-    lib.StreamArrayFromPython.restype = None
+    # void StreamArrayToDLL(ReadCallback callback);
+    lib.StreamArrayToDLL.argtypes = [ctypes.CFUNCTYPE(ctypes.c_char_p)]
+    lib.StreamArrayToDLL.restype = None
 
     return lib
 
@@ -184,7 +184,7 @@ class BlobSession:
             results.append(s.decode("utf-8"))
 
         cb_col = callback(collect)
-        self._lib.StreamArrayToPython(cb_col)
+        self._lib.StreamArrayFromDLL(cb_col)
 
         return results
 
@@ -202,7 +202,7 @@ class BlobSession:
             return None
 
         cb_col = callback(distribute)
-        self._lib.StreamArrayFromPython(cb_col)
+        self._lib.StreamArrayToDLL(cb_col)
 
     def __read_error(self) -> str:
         txt_ptr = self._lib.GetError()

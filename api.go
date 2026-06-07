@@ -416,7 +416,7 @@ func TryWritingToVersionGo(path string, position *uint64) (int64, bool) {
 	return rcOK, fileChanged == FileChanged
 }
 
-func StopWriteToVersionGo(compression *int64) (int64, string) {
+func StopWriteToVersionGo() (int64, string) {
 	if currentVersion == nil {
 		return setErr("StopWriteToVersion: can't stop writing to a version that isn't opened"), ""
 	}
