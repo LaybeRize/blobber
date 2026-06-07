@@ -355,6 +355,73 @@ func LoadAndSetPreviousVersionGo(oldVersionName string) int64 {
 	return rcOK
 }
 
+func StartWriteToVersionGo(compression *int64) int64 {
+	if currentVersion == nil {
+		return setErr("StartWriteToVersion: can't write to a version that isn't opened")
+	}
+	if len(currentVersion.Files) != 0 {
+		return setErr("StartWriteToVersion: can only start writing if the version isn't already created")
+	}
+	return BlobOpenGo("", getVersionBlob(), compression)
+}
+
+func TryWritingToVersionGo(path string, position *uint64) (int64, bool) {
+	if currentWriteFile == nil || currentVersion == nil {
+		return setErr("TryWritingToVersion: failed to write to an unopened version or blob"), false
+	}
+
+	var fileLength uint64
+	//In case the file is skipped keep the position the same
+	filePosition := *position
+	var fileLastModifiedNs uint64
+	var prevHash *string = nil
+	var fileChanged int64
+	var blobPath = currentVersion.BlobPath
+
+	if val := previousFilesMap[path]; val != nil {
+		fileLength, filePosition, fileLastModifiedNs = val.FilePosition, val.FilePosition, val.FileTS
+		prevHashString := val.FileHash
+		prevHash = &prevHashString
+		blobPath = val.BlobPath
+	}
+
+	retCode, newHash := BlobCompressGo(path, &fileLength, &filePosition, &fileLastModifiedNs, prevHash, &fileChanged)
+	if retCode != rcOK {
+		return retCode, false
+	}
+
+	if fileChanged == FileUnchanged {
+		currentVersion.Files = append(currentVersion.Files, FileManifest{
+			FilePath:     path,
+			FileLength:   fileLength,
+			FilePosition: filePosition,
+			FileHash:     newHash,
+			FileTS:       fileLastModifiedNs,
+			BlobPath:     blobPath,
+		})
+	} else if fileChanged == FileChanged {
+		currentVersion.Files = append(currentVersion.Files, FileManifest{
+			FilePath:     path,
+			FileLength:   fileLength,
+			FilePosition: filePosition,
+			FileHash:     newHash,
+			FileTS:       fileLastModifiedNs,
+			BlobPath:     currentVersion.BlobPath,
+		})
+		// Only update position, when the file is actually written to the blob
+		*position = filePosition
+	}
+
+	return rcOK, fileChanged == FileChanged
+}
+
+func StopWriteToVersionGo(compression *int64) (int64, string) {
+	if currentVersion == nil {
+		return setErr("StopWriteToVersion: can't stop writing to a version that isn't opened"), ""
+	}
+	return BlobCloseWithStatisticsGo()
+}
+
 // -----------------------------------------------------------------------------
 // HELPER FUNCTIONS
 // -----------------------------------------------------------------------------
