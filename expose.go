@@ -19,7 +19,7 @@ static const char* read_callback(ReadCallback cb) {
 	return cb();
 }
 
-static void stat_callback(ReadCallback cb, int64_t f, uint64_t b) {
+static void stat_callback(StatCallback cb, int64_t f, uint64_t b) {
 	cb(f, b);
 }
 */
