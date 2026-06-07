@@ -2,7 +2,6 @@ import ctypes
 import glob
 import sys
 import os
-from itertools import cycle
 from pathlib import Path
 from sign_dll import sign_dll
 

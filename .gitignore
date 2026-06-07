@@ -2,6 +2,7 @@
 build
 python/data
 python/data2
+python/versioning
 python/blob.blob
 python/__pycache__
 go.sum

@@ -207,6 +207,10 @@ func LoadOverviewGo(overviewFolder string) int64 {
 		RepositoryNames: make([]string, 0),
 		RepositoryPaths: make([]string, 0),
 	}
+	if err := os.MkdirAll(overviewFolder, 0755); err != nil {
+		return setErr(fmt.Sprintf("LoadOverviewGo: failed to create file directory '%s' : %v",
+			overviewFolder, err))
+	}
 	if _, err := os.Stat(overviewPath); errors.Is(err, os.ErrNotExist) {
 		currentOverviewFolder = overviewFolder
 		return rcOK
@@ -223,10 +227,6 @@ func LoadOverviewGo(overviewFolder string) int64 {
 func CloseOverviewGo() int64 {
 	if currentOverview == nil {
 		return setErr("CloseOverview: can't close an overview that is not open.")
-	}
-	if err := os.MkdirAll(currentOverviewFolder, 0755); err != nil {
-		return setErr(fmt.Sprintf("CloseOverview: failed to create file directory '%s' : %v",
-			currentOverviewFolder, err))
 	}
 	err := currentOverview.StreamToFile(path.Join(currentOverviewFolder, OverviewName))
 	if err != nil {
