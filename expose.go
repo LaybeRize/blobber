@@ -259,6 +259,10 @@ func EstimateRead(
 	return C.int64_t(retCode)
 }
 
+// -----------------------------------------------------------------------------
+// HELPER FUNCTIONS
+// -----------------------------------------------------------------------------
+
 //export UpdateParameter
 func UpdateParameter(
 	fileDivider C.int64_t, // [in]
@@ -267,10 +271,6 @@ func UpdateParameter(
 	Divider = int64(fileDivider)
 	ByteMarker = uint64(totalByteMarker)
 }
-
-// -----------------------------------------------------------------------------
-// HELPER FUNCTIONS
-// -----------------------------------------------------------------------------
 
 //export StreamArrayFromDLL
 func StreamArrayFromDLL(
