@@ -17,6 +17,8 @@ def _load_lib() -> ctypes.CDLL:
 
     lib = ctypes.CDLL(base_path)
 
+    # --------------- Direct Access Functions ---------------
+
     # int64_t BlobOpen(char* readFile, char* writeFile, int64_t* compression);
     lib.BlobOpen.argtypes = [ctypes.c_char_p,
                              ctypes.c_char_p,
@@ -46,9 +48,57 @@ def _load_lib() -> ctypes.CDLL:
     lib.BlobCloseWithStatistics.argtypes = [ctypes.POINTER(ctypes.c_char_p)]
     lib.BlobCloseWithStatistics.restype = ctypes.c_int64
 
-    # char* GetError();
-    lib.GetError.argtypes = []
-    lib.GetError.restype = ctypes.POINTER(ctypes.c_char_p)
+    # --------------- Version Management Functions ---------------
+
+    # int64_t LoadOverview(char* path);
+    lib.LoadOverview.argtypes = [ctypes.c_char_p]
+    lib.LoadOverview.restype = ctypes.c_int64
+
+    # int64_t CloseOverview();
+    lib.CloseOverview.argtypes = []
+    lib.CloseOverview.restype = ctypes.c_int64
+
+    # int64_t RegisterNewRepository(char* repositoryName);
+    lib.RegisterNewRepository.argtypes = [ctypes.c_char_p]
+    lib.RegisterNewRepository.restype = ctypes.c_int64
+
+    # int64_t LoadRepository(char* repositoryName);
+    lib.LoadRepository.argtypes = [ctypes.c_char_p]
+    lib.LoadRepository.restype = ctypes.c_int64
+
+    # int64_t RegisterNewVersion(char* versionName);
+    lib.RegisterNewVersion.argtypes = [ctypes.c_char_p]
+    lib.RegisterNewVersion.restype = ctypes.c_int64
+
+    # int64_t LoadVersion(char* versionName);
+    lib.LoadVersion.argtypes = [ctypes.c_char_p]
+    lib.LoadVersion.restype = ctypes.c_int64
+
+    # int64_t LoadAndSetPreviousVersion(char* previousVersionName);
+    lib.LoadAndSetPreviousVersion.argtypes = [ctypes.c_char_p]
+    lib.LoadAndSetPreviousVersion.restype = ctypes.c_int64
+
+    # int64_t WriteToVersion(int64_t* compression, ReadCallback callback, uint64_t* bytesProcessed, char** compressionRate);
+    lib.WriteToVersion.argtypes = [ctypes.POINTER(ctypes.c_int64),
+                                   ctypes.CFUNCTYPE(ctypes.c_char_p),
+                                   ctypes.POINTER(ctypes.c_uint64),
+                                   ctypes.POINTER(ctypes.c_char_p)]
+    lib.WriteToVersion.restype = ctypes.c_int64
+
+    # int64_t ReadFromVersion(int64_t overwriteExistingFiles, StatCallback callback);
+    lib.ReadFromVersion.argtypes = [ctypes.c_int64,
+                                    ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_uint64)]
+    lib.ReadFromVersion.restype = ctypes.c_int64
+
+    # int64_t EstimateRead(int64_t overwriteExistingFiles);
+    lib.EstimateRead.argtypes = [ctypes.c_int64]
+    lib.EstimateRead.restype = ctypes.c_int64
+
+    # --------------- Helper Functions ---------------
+
+    # void UpdateParameter(fileDivider int64_t, totalByteMarker uint64_t);
+    lib.UpdateParameter.argtypes = [ctypes.c_int64, ctypes.c_uint64]
+    lib.UpdateParameter.restype = None
 
     # void StreamArrayFromDLL(WriteCallback callback);
     lib.StreamArrayFromDLL.argtypes = [ctypes.CFUNCTYPE(None, ctypes.c_char_p)]
@@ -57,6 +107,10 @@ def _load_lib() -> ctypes.CDLL:
     # void StreamArrayToDLL(ReadCallback callback);
     lib.StreamArrayToDLL.argtypes = [ctypes.CFUNCTYPE(ctypes.c_char_p)]
     lib.StreamArrayToDLL.restype = None
+
+    # char* GetError();
+    lib.GetError.argtypes = []
+    lib.GetError.restype = ctypes.POINTER(ctypes.c_char_p)
 
     return lib
 
@@ -72,6 +126,8 @@ def _get_lib() -> ctypes.CDLL:
 class BlobSession:
     def __init__(self):
         self._lib  = _get_lib()
+
+    # --------------- Direct Access Functions ---------------
 
     def open_for_writing(self, path: str, compression_level: int = 7):
         """
@@ -175,6 +231,13 @@ class BlobSession:
             raise RuntimeError(self.__read_error())
 
         return hash_ptr.value.decode("UTF-8")
+
+    # --------------- Version Management Functions ---------------
+
+    # --------------- Helper Functions ---------------
+
+    def __update_stats(self, file_divider: int, process_byte_marker: int):
+        self._lib.UpdateParameter(ctypes.c_int64(file_divider), ctypes.c_uint64(process_byte_marker))
 
     def __read_array(self) -> list[str]:
         callback = ctypes.CFUNCTYPE(None, ctypes.c_char_p)
