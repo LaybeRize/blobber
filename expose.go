@@ -224,6 +224,13 @@ func WriteToVersion(
 	}
 	retCode, statistics := StopWriteToVersionGo()
 	writeDoublePointer(compressionRate, &statisticsBuffer[0], statistics)
+	if retCode == rcOK {
+		tempArray := make([]string, len(currentVersion.Files))
+		for i, file := range currentVersion.Files {
+			tempArray[i] = file.FilePath
+		}
+		streamingValues = &tempArray
+	}
 	return C.int64_t(retCode)
 }
 
