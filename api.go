@@ -25,6 +25,8 @@ const (
 	FileChanged
 )
 
+var Divider int64 = 20
+var ByteMarker uint64 = 64 * 1024 * 1024
 var errorMsg = ""
 
 // -----------------------------------------------------------------------------
@@ -337,6 +339,34 @@ func RegisterNewVersionGo(versionName string) int64 {
 	return rcOK
 }
 
+func LoadVersionGo(versionName string) int64 {
+	if currentOverview == nil || currentRepo == nil {
+		return setErr("LoadVersion: can't register a version without an open overview + repo")
+	}
+	if currentRepo.GetPath(versionName) == nil {
+		return setErr("LoadVersion: version name could not be found")
+	}
+
+	err := closeVersion()
+	if err != nil {
+		return setErr(fmt.Sprintf(
+			"LoadVersion: error while trying to close previously loaded version: %v", err))
+	}
+
+	currentVersion = &VersionManifest{
+		VersionName: versionName,
+	}
+	err = currentVersion.StreamFromFile(getVersionPath())
+	if err != nil {
+		return setErr(fmt.Sprintf(
+			"LoadVersion: error while trying to load newly selected version: %v", err))
+	}
+	previousVersion = nil
+	previousFilesMap = nil
+
+	return rcOK
+}
+
 func LoadAndSetPreviousVersionGo(oldVersionName string) int64 {
 	if currentVersion == nil {
 		return setErr("LoadAndSetPreviousVersion: can't set a previous version on something that isn't loaded")
@@ -436,15 +466,14 @@ func ReadFromVersionGo(
 		return rcOK
 	}
 	currBlob := ""
+	localWrapFiles := int64(len(currentVersion.Files)) / Divider
+	localNextBytesStep := ByteMarker
 	var filesWritten int64 = 0
 	var bytesWritten uint64 = 0
 
 	for _, file := range currentVersion.Files {
 		_, err := os.Stat(file.FilePath)
-		if (!overwriteExistingFiles && os.IsExist(err)) || !matchAnyHandle(file.FilePath, matches) {
-			if callback != nil {
-				(*callback)(filesWritten, bytesWritten)
-			}
+		if (!overwriteExistingFiles && os.IsExist(err)) || (len(matches) != 0 && !matchAnyHandle(file.FilePath, matches)) {
 			continue
 		}
 
@@ -470,7 +499,12 @@ func ReadFromVersionGo(
 		bytesWritten += length
 
 		if callback != nil {
-			(*callback)(filesWritten, bytesWritten)
+			if filesWritten%localWrapFiles == 0 {
+				(*callback)(filesWritten, bytesWritten)
+			} else if bytesWritten > localNextBytesStep {
+				localNextBytesStep = bytesWritten + ByteMarker
+				(*callback)(filesWritten, bytesWritten)
+			}
 		}
 	}
 
@@ -480,6 +514,26 @@ func ReadFromVersionGo(
 		}
 	}
 	return rcOK
+}
+
+func EstimateReadGo(
+	matches []string,
+	overwriteExistingFiles bool,
+) (int64, []string) {
+	if currentVersion == nil {
+		return setErr("ReadFromVersion: can't read from a version that isn't loaded"), nil
+	}
+	res := make([]string, len(currentVersion.Files))
+	counter := 0
+	for _, file := range currentVersion.Files {
+		_, err := os.Stat(file.FilePath)
+		if (!overwriteExistingFiles && os.IsExist(err)) || (len(matches) != 0 && !matchAnyHandle(file.FilePath, matches)) {
+			continue
+		}
+		res[counter] = file.FilePath
+		counter += 1
+	}
+	return rcOK, res[:counter]
 }
 
 // -----------------------------------------------------------------------------

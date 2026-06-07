@@ -153,14 +153,22 @@ func CloseOverview() C.int64_t {
 func RegisterNewRepository(
 	repositoryName *C.char, // [in]
 ) C.int64_t {
-	return C.int64_t(RegisterNewRepositoryGo(C.GoString(repositoryName)))
+	retCode := RegisterNewRepositoryGo(C.GoString(repositoryName))
+	if retCode == rcOK {
+		streamingValues = &currentRepo.VersionNames
+	}
+	return C.int64_t(retCode)
 }
 
 //export LoadRepository
 func LoadRepository(
 	repositoryName *C.char, // [in]
 ) C.int64_t {
-	return C.int64_t(LoadRepositoryGo(C.GoString(repositoryName)))
+	retCode := LoadRepositoryGo(C.GoString(repositoryName))
+	if retCode == rcOK {
+		streamingValues = &currentRepo.VersionNames
+	}
+	return C.int64_t(retCode)
 }
 
 //export RegisterNewVersion
@@ -168,6 +176,21 @@ func RegisterNewVersion(
 	versionName *C.char, // [in]
 ) C.int64_t {
 	return C.int64_t(RegisterNewVersionGo(C.GoString(versionName)))
+}
+
+//export LoadVersion
+func LoadVersion(
+	versionName *C.char, // [in]
+) C.int64_t {
+	retCode := LoadVersionGo(C.GoString(versionName))
+	if retCode == rcOK {
+		tempArray := make([]string, len(currentVersion.Files))
+		for i, file := range currentVersion.Files {
+			tempArray[i] = file.FilePath
+		}
+		streamingValues = &tempArray
+	}
+	return C.int64_t(retCode)
 }
 
 //export LoadAndSetPreviousVersion
@@ -204,9 +227,9 @@ func WriteToVersion(
 	return C.int64_t(retCode)
 }
 
-// Important Notice: Before this function is called StreamArrayFrom() must be called with the
+// Important Notice: Before this function is called, StreamArrayToDLL() must be called with the
 // list of file patterns to Read, even if the list is empty, so that the internally kept array that is used
-// in the function is cleaned up. If StreamArrayFrom() is not called before, the function might not behave
+// in the function is cleaned up. If StreamArrayToDLL() is not called before, the function might not behave
 // as expected.
 
 //export ReadFromVersion
@@ -218,6 +241,31 @@ func ReadFromVersion(
 		C.stat_callback(callback, C.int64_t(filesWritten), C.uint64_t(bytesWritten))
 	}
 	return C.int64_t(ReadFromVersionGo(*streamingValues, overwriteExistingFiles != 0, &internalCallback))
+}
+
+// Important Notice: Before this function is called, StreamArrayToDLL() must be called with the
+// list of file patterns to Read, even if the list is empty, so that the internally kept array that is used
+// in the function is cleaned up. If StreamArrayToDLL() is not called before, the function might not behave
+// as expected. The result then overwrites the array and can be read via StreamArrayFromDLL().
+
+//export EstimateRead
+func EstimateRead(
+	overwriteExistingFiles C.int64_t, // [in]
+) C.int64_t {
+	retCode, result := EstimateReadGo(*streamingValues, overwriteExistingFiles != 0)
+	if retCode == rcOK {
+		streamingValues = &result
+	}
+	return C.int64_t(retCode)
+}
+
+//export UpdateParameter
+func UpdateParameter(
+	fileDivider C.int64_t, // [in]
+	totalByteMarker C.uint64_t, // [in]
+) {
+	Divider = int64(fileDivider)
+	ByteMarker = uint64(totalByteMarker)
 }
 
 // -----------------------------------------------------------------------------
