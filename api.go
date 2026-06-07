@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 	"time"
 )
 
@@ -419,12 +420,81 @@ func StopWriteToVersionGo(compression *int64) (int64, string) {
 	if currentVersion == nil {
 		return setErr("StopWriteToVersion: can't stop writing to a version that isn't opened"), ""
 	}
+	currentVersion.SortFiles()
 	return BlobCloseWithStatisticsGo()
+}
+
+func ReadFromVersionGo(
+	matches []string,
+	overwriteExistingFiles bool,
+	callback *func(filesWritten int64, bytesWritten uint64), // being called after every processed file
+) int64 {
+	if currentVersion == nil {
+		return setErr("ReadFromVersion: can't read from a version that isn't loaded")
+	}
+	if len(currentVersion.Files) == 0 {
+		return rcOK
+	}
+	currBlob := ""
+	var filesWritten int64 = 0
+	var bytesWritten uint64 = 0
+
+	for _, file := range currentVersion.Files {
+		_, err := os.Stat(file.FilePath)
+		if (!overwriteExistingFiles && os.IsExist(err)) || !matchAnyHandle(file.FilePath, matches) {
+			if callback != nil {
+				(*callback)(filesWritten, bytesWritten)
+			}
+			continue
+		}
+
+		if file.BlobPath != currBlob {
+			if currentReadFile != nil {
+				if err = currentReadFile.close(); err != nil {
+					return setErr(fmt.Sprintf("ReadFromVersion: failed to close previous blob: %v", err))
+				}
+			}
+			currBlob = file.BlobPath
+			err, currentReadFile = openFileRead(getVersionBlobWithBlobName(currBlob))
+			if err != nil {
+				return setErr(fmt.Sprintf("ReadFromVersion: failed to open next blob: %v", err))
+			}
+		}
+		position, length := file.FilePosition, file.FileLength
+		err = currentReadFile.decompressFile(file.FilePath, &position, length)
+		if err != nil {
+			return setErr(fmt.Sprintf("ReadFromVersion: failed to decompress file: %v", err))
+		}
+
+		filesWritten += 1
+		bytesWritten += length
+
+		if callback != nil {
+			(*callback)(filesWritten, bytesWritten)
+		}
+	}
+
+	if currentReadFile != nil {
+		if err := currentReadFile.close(); err != nil {
+			return setErr(fmt.Sprintf("ReadFromVersion: failed to close last blob: %v", err))
+		}
+	}
+	return rcOK
 }
 
 // -----------------------------------------------------------------------------
 // HELPER FUNCTIONS
 // -----------------------------------------------------------------------------
+
+func matchAnyHandle(path string, pattern []string) bool {
+	for _, pat := range pattern {
+		success, _ := filepath.Match(pat, path)
+		if success {
+			return true
+		}
+	}
+	return false
+}
 
 func closeRepo() error {
 	if currentRepo == nil {
@@ -463,6 +533,14 @@ func getVersionBlob() string {
 		*currentOverview.GetPath(currentRepo.RepositoryName)) +
 		"_" +
 		*currentRepo.GetPath(currentVersion.VersionName) +
+		BlobSuffix
+}
+
+func getVersionBlobWithBlobName(blobName string) string {
+	return path.Join(currentOverviewFolder,
+		*currentOverview.GetPath(currentRepo.RepositoryName)) +
+		"_" +
+		blobName +
 		BlobSuffix
 }
 
