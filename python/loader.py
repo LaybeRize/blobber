@@ -377,13 +377,15 @@ class BlobSession:
 
         file_counter = 0
         next_byte_message = self._BYTES_MARKER
+        local_divider = (len(results) // self._MESSAGE_AMOUNT) + 1
 
         def distribute():
-            nonlocal index, byte_position, file_counter, next_byte_message
+            nonlocal index, file_counter, next_byte_message
             file_counter += 1
             if index >= len(results):
+                file_counter -= 1
                 return None
-            if file_counter % self._MESSAGE_AMOUNT == 0:
+            if file_counter % local_divider == 0:
                 print(f"Processed {file_counter-1} files.")
             if byte_position.value > next_byte_message:
                 print(f"Processed {byte_position.value:_} bytes.")
