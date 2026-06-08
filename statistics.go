@@ -59,6 +59,11 @@ type RepositoryManifest struct {
 	VersionPaths   []string `json:"versionPaths"`
 }
 
+func (r *RepositoryManifest) RegisterVersion(name string, path string) {
+	r.VersionNames = append(r.VersionNames, name)
+	r.VersionPaths = append(r.VersionPaths, path)
+}
+
 func (r *RepositoryManifest) GetPath(name string) *string {
 	if pos := slices.Index(r.VersionNames, name); pos != -1 {
 		return &(r.VersionPaths[pos])

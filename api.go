@@ -326,8 +326,9 @@ func RegisterNewVersionGo(versionName string) int64 {
 	}
 
 	versionPath := timestampBase64()
+	currentRepo.RegisterVersion(versionName, versionPath)
 	currentVersion = &VersionManifest{
-		VersionName:     versionPath,
+		VersionName:     versionName,
 		PreviousVersion: nil,
 		BlobPath:        versionPath,
 		Created:         uint64(time.Now().UnixNano()),
