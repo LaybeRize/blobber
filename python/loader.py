@@ -423,12 +423,13 @@ class BlobSession:
         callback = ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_uint64)
 
         def stat_printer(actual_files_written, bytes_written):
-            print(f"Processed {actual_files_written.value} files with a total of {bytes_written.value:_} bytes so far.")
+            print(f"Processed {actual_files_written} files with a total of {bytes_written:_} bytes.")
 
         cb_statistics = callback(stat_printer)
         success = self._lib.ReadFromVersion(overwrite, cb_statistics)
         if not success:
             raise RuntimeError(self.__read_error())
+        print("Finished restoring desired files.")
 
     def estimate_files_read(self, overwrite_existing_files: bool, paths: list[str]) -> list[str]:
         """

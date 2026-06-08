@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -15,14 +16,14 @@ import (
 )
 
 const (
+	SkippedFile int64 = iota - 1
+	FileUnchanged
+	FileChanged
+
 	ChunkSize = 4 * 1024 * 1024
 
 	rcOK  int64 = 1
 	rcErr int64 = 0
-
-	SkippedFile int64 = iota - 1
-	FileUnchanged
-	FileChanged
 )
 
 var Divider int64 = 20
@@ -104,7 +105,7 @@ func BlobCompressGo(
 		// Cheap check: length + mtime first
 		if curLen == *fileLength && curMtime == *fileLastModifiedNs {
 			*fileChanged = FileUnchanged
-			return rcOK, ""
+			return rcOK, *prevHash
 		}
 		var herr error
 		newHash, herr = hashFile(filePath)
@@ -113,7 +114,7 @@ func BlobCompressGo(
 		}
 		if newHash == *prevHash {
 			*fileChanged = FileUnchanged
-			return rcOK, ""
+			return rcOK, newHash
 		}
 	}
 
@@ -161,6 +162,13 @@ func BlobCloseGo() int64 {
 	}
 	currentReadFile = nil
 	currentWriteFile = nil
+	return rcOK
+}
+
+func BlobTryCloseGo() int64 {
+	if currentWriteFile != nil || currentReadFile != nil {
+		return BlobCloseGo()
+	}
 	return rcOK
 }
 
@@ -479,21 +487,21 @@ func ReadFromVersionGo(
 		}
 
 		if file.BlobPath != currBlob {
-			if currentReadFile != nil {
-				if err = currentReadFile.close(); err != nil {
-					return setErr(fmt.Sprintf("ReadFromVersion: failed to close previous blob: %v", err))
-				}
+			if retCode := BlobTryCloseGo(); retCode != rcOK {
+				return retCode
 			}
+
 			currBlob = file.BlobPath
-			err, currentReadFile = openFileRead(getVersionBlobWithBlobName(currBlob))
-			if err != nil {
-				return setErr(fmt.Sprintf("ReadFromVersion: failed to open next blob: %v", err))
+			retCode := BlobOpenGo(getVersionBlobWithBlobName(currBlob), "", nil)
+			if retCode != rcOK {
+				return retCode
 			}
 		}
+
 		position, length := file.FilePosition, file.FileLength
-		err = currentReadFile.decompressFile(file.FilePath, &position, length)
-		if err != nil {
-			return setErr(fmt.Sprintf("ReadFromVersion: failed to decompress file: %v", err))
+		retCode := BlobDecompressGo(file.FilePath, &position, length)
+		if retCode != rcOK {
+			return retCode
 		}
 
 		filesWritten += 1
@@ -509,10 +517,8 @@ func ReadFromVersionGo(
 		}
 	}
 
-	if currentReadFile != nil {
-		if err := currentReadFile.close(); err != nil {
-			return setErr(fmt.Sprintf("ReadFromVersion: failed to close last blob: %v", err))
-		}
+	if retCode := BlobTryCloseGo(); retCode != rcOK {
+		return retCode
 	}
 	return rcOK
 }
@@ -528,7 +534,7 @@ func EstimateReadGo(
 	counter := 0
 	for _, file := range currentVersion.Files {
 		_, err := os.Stat(file.FilePath)
-		if (!overwriteExistingFiles && os.IsExist(err)) || (len(matches) != 0 && !matchAnyHandle(file.FilePath, matches)) {
+		if (!overwriteExistingFiles && !errors.Is(err, fs.ErrNotExist)) || (len(matches) != 0 && !matchAnyHandle(file.FilePath, matches)) {
 			continue
 		}
 		res[counter] = file.FilePath
