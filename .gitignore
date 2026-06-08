@@ -1,6 +1,7 @@
 .idea
 build
 python/data
+python/data_old
 python/data2
 python/versioning
 python/blob.blob

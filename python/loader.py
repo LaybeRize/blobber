@@ -381,12 +381,11 @@ class BlobSession:
 
         def distribute():
             nonlocal index, file_counter, next_byte_message
-            file_counter += 1
             if index >= len(results):
-                file_counter -= 1
                 return None
+            file_counter += 1
             if file_counter % local_divider == 0:
-                print(f"Processed {file_counter-1} files.")
+                print(f"Processed {file_counter-1} paths.")
             if byte_position.value > next_byte_message:
                 print(f"Processed {byte_position.value:_} bytes.")
                 next_byte_message = byte_position.value + self._BYTES_MARKER
@@ -402,9 +401,12 @@ class BlobSession:
         if not success:
             raise RuntimeError(self.__read_error())
 
-        print(f"Processed a total of {file_counter}/{len(results)} files with a sum of {byte_position.value:_} bytes.")
+        files_saved = self.__read_array()
+        print(f"Processed a total of {file_counter} paths, "
+              f"{len(files_saved)} of which were files saved to this version "
+              f"with a sum of {byte_position.value:_} bytes.")
 
-        return statistics_ptr.value.decode(self._ENCODING), self.__read_array()
+        return statistics_ptr.value.decode(self._ENCODING), files_saved
 
     def read_files_from_version(self, overwrite_existing_files: bool, paths: list[str]):
         """
