@@ -419,7 +419,7 @@ func TryWritingToVersionGo(path string, position *uint64) (int64, bool) {
 	var blobPath = currentVersion.BlobPath
 
 	if val := previousFilesMap[path]; val != nil {
-		fileLength, filePosition, fileLastModifiedNs = val.FilePosition, val.FilePosition, val.FileTS
+		fileLength, filePosition, fileLastModifiedNs = val.FileLength, val.FilePosition, val.FileTS
 		prevHashString := val.FileHash
 		prevHash = &prevHashString
 		blobPath = val.BlobPath
