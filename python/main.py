@@ -43,7 +43,7 @@ def test_raw_functions():
     for file_path, length, position in files:
         session.read_file_from_blob(result_dir + file_path.removeprefix(data_dir), length, position)
     session.close_blob_file()
-    print("Finished File Functions")
+    print("--- Finished File Functions ---")
     if not tree_compare_same(data_dir, result_dir):
         print("+++ Failed to verify that data was correctly reproduced +++")
         exit(-1)

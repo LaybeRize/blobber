@@ -79,10 +79,9 @@ def _load_lib() -> ctypes.CDLL:
     lib.LoadAndSetPreviousVersion.argtypes = [ctypes.c_char_p]
     lib.LoadAndSetPreviousVersion.restype = ctypes.c_int64
 
-    # int64_t WriteToVersion(int64_t* compression, ReadCallback callback, uint64_t* bytesProcessed, char** compressionRate);
+    # int64_t WriteToVersion(int64_t* compression, StatCallback callback, char** compressionRate);
     lib.WriteToVersion.argtypes = [ctypes.POINTER(ctypes.c_int64),
-                                   ctypes.CFUNCTYPE(ctypes.c_char_p),
-                                   ctypes.POINTER(ctypes.c_uint64),
+                                   ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64),
                                    ctypes.POINTER(ctypes.c_char_p)]
     lib.WriteToVersion.restype = ctypes.c_int64
 
@@ -369,46 +368,28 @@ class BlobSession:
             comp_ptr = ctypes.byref(comp_level_val)
         else:
             comp_ptr = None
-        callback = ctypes.CFUNCTYPE(ctypes.c_char_p)
-        byte_position = ctypes.c_uint64(0)
+        callback = ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)
         statistics_ptr = ctypes.c_char_p(None)
 
-        results = []
+        print("Transferring path information.")
+        self.__write_array([])
         for glob_cmd in glob_commands:
-            results.extend([ctypes.create_string_buffer(val.encode(self._ENCODING))
-                            for val in glob.glob(glob_cmd, recursive=True, include_hidden=True)])
-        index = 0
+            self.__extend_array([val for val in glob.glob(glob_cmd, recursive=True, include_hidden=True)])
 
-        file_counter = 0
-        next_byte_message = self._BYTES_MARKER
-        local_divider = (len(results) // self._MESSAGE_AMOUNT) + 1
+        def stat_printer(processed, actual_files_written, bytes_written):
+            print(f"Processed {processed} paths, with a total of {actual_files_written} files ({bytes_written:_}B) compressed.")
 
-        def distribute():
-            nonlocal index, file_counter, next_byte_message
-            if index >= len(results):
-                return None
-            file_counter += 1
-            if file_counter % local_divider == 0:
-                print(f"Processed {file_counter-1} paths.")
-            if byte_position.value > next_byte_message:
-                print(f"Processed {byte_position.value:_} bytes.")
-                next_byte_message = byte_position.value + self._BYTES_MARKER
-            index += 1
-            return ctypes.addressof(results[index - 1])
+        cb_statistics = callback(stat_printer)
 
-        cb_distribute = callback(distribute)
-
+        print("Creating new Version.")
         success = self._lib.WriteToVersion(comp_ptr,
-                                           cb_distribute,
-                                           ctypes.byref(byte_position),
+                                           cb_statistics,
                                            ctypes.byref(statistics_ptr))
         if not success:
             raise RuntimeError(self.__read_error())
 
         files_saved = self.__read_array()
-        print(f"Processed a total of {file_counter} paths, "
-              f"{len(files_saved)} of which were files saved to this version "
-              f"with a sum of {byte_position.value:_} bytes.")
+        print(f"Finished saving {len(files_saved)} files to version.")
 
         return statistics_ptr.value.decode(self._ENCODING), files_saved
 

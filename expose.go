@@ -200,28 +200,55 @@ func LoadAndSetPreviousVersion(
 	return C.int64_t(LoadAndSetPreviousVersionGo(C.GoString(previousVersionName)))
 }
 
+// Important Notice: Before this function is called, StreamArrayToDLL() must be called with the
+// list of file paths to process, even if the list is empty, so that the internally kept array that is used
+// in the function is cleaned up. If StreamArrayToDLL() is not called before, the function might not behave
+// as expected. If the list is too big to transfer in one go, you can use ArrayExtendToDLL() to extend the array.
+
 //export WriteToVersion
 func WriteToVersion(
 	compression *C.int64_t, // [in]
-	callback C.ReadCallback, // [in]
-	bytesProcessed *C.uint64_t, // [out]
+	callback C.StatCallback, // [in]
 	compressionRate **C.char, // [out] If pre-allocated at least 10-byte
 ) C.int64_t {
-	retCode := StartWriteToVersionGo((*int64)(unsafe.Pointer(compression)))
-	if retCode != rcOK {
+
+	if retCode := StartWriteToVersionGo((*int64)(unsafe.Pointer(compression))); retCode != rcOK {
 		return C.int64_t(retCode)
 	}
-	*bytesProcessed = 0
-	for {
-		cStr := C.read_callback(callback)
-		if cStr == nil {
-			break
+
+	internalCallback := func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {
+		C.stat_callback(callback, C.int64_t(filesProcessed), C.int64_t(filesWritten), C.uint64_t(bytesWritten))
+	}
+
+	localWrapFiles := (int64(len(*streamingValues)) / Divider) + 1
+	localNextBytesStep := ByteMarker
+	var pathsProcessed int64 = 0
+	var pathsSaved int64 = 0
+	var bytesProcessed uint64 = 0
+
+	for _, value := range *streamingValues {
+		pathsProcessed += 1
+		if pathsProcessed%localWrapFiles == 0 {
+			if bytesProcessed > localNextBytesStep {
+				localNextBytesStep = bytesProcessed + ByteMarker
+			}
+			internalCallback(pathsProcessed-1, pathsSaved, bytesProcessed)
+		} else if bytesProcessed > localNextBytesStep {
+			localNextBytesStep = bytesProcessed + ByteMarker
+			internalCallback(pathsProcessed-1, pathsSaved, bytesProcessed)
 		}
-		retCode, _ = TryWritingToVersionGo(C.GoString(cStr), (*uint64)(unsafe.Pointer(bytesProcessed)))
+
+		retCode, saved := TryWritingToVersionGo(value, &bytesProcessed)
 		if retCode != rcOK {
 			return C.int64_t(retCode)
 		}
+		if saved {
+			pathsSaved += 1
+		}
 	}
+
+	internalCallback(pathsProcessed, pathsSaved, bytesProcessed)
+
 	retCode, statistics := StopWriteToVersionGo()
 	writeDoublePointer(compressionRate, &statisticsBuffer[0], statistics)
 	if retCode == rcOK {
@@ -315,13 +342,12 @@ func ArrayExtendToDLL(
 	if streamingValues == nil {
 		return
 	}
-	stream := *streamingValues
 	for {
 		cStr := C.read_callback(callback)
 		if cStr == nil {
 			break
 		}
-		stream = append(stream, C.GoString(cStr))
+		*streamingValues = append(*streamingValues, C.GoString(cStr))
 	}
 }
 
