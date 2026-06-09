@@ -405,7 +405,7 @@ func StartWriteToVersionGo(compression *int64) int64 {
 	return BlobOpenGo("", getVersionBlob(), compression)
 }
 
-func TryWritingToVersionGo(path string, position *uint64) (int64, bool) {
+func TryWritingToVersionGo(path string, position *uint64, bytesProcessed *uint64) (int64, bool) {
 	if currentWriteFile == nil || currentVersion == nil {
 		return setErr("TryWritingToVersion: failed to write to an unopened version or blob"), false
 	}
@@ -450,6 +450,7 @@ func TryWritingToVersionGo(path string, position *uint64) (int64, bool) {
 		})
 		// Only update position, when the file is actually written to the blob
 		*position = filePosition
+		*bytesProcessed = filePosition + fileLength
 	}
 
 	return rcOK, fileChanged == FileChanged

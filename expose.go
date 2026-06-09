@@ -222,6 +222,7 @@ func WriteToVersion(
 
 	localWrapFiles := (int64(len(*streamingValues)) / Divider) + 1
 	localNextBytesStep := ByteMarker
+	var filePosition uint64 = 0
 	var pathsProcessed int64 = 0
 	var pathsSaved int64 = 0
 	var bytesProcessed uint64 = 0
@@ -238,7 +239,7 @@ func WriteToVersion(
 			internalCallback(pathsProcessed-1, pathsSaved, bytesProcessed)
 		}
 
-		retCode, saved := TryWritingToVersionGo(value, &bytesProcessed)
+		retCode, saved := TryWritingToVersionGo(value, &filePosition, &bytesProcessed)
 		if retCode != rcOK {
 			return C.int64_t(retCode)
 		}
