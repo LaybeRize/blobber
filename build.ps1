@@ -21,8 +21,19 @@ $env:GOARCH = "amd64"
 go build -mod=vendor -buildmode=c-shared -o "$OutputDir\$BinaryName.dll" .
 
 if ($LASTEXITCODE -ne 0) {
-    Write-Error "Windows build failed"
+    Write-Error "Windows build for DLL failed"
     exit 1
 }
-Write-Host "Windows build OK -> $OutputDir\$BinaryName.dll"
+
+Write-Host "Building Windows EXE..."
+
+go build -mod=vendor -o "$OutputDir\$BinaryName.exe" -tags cli .
+
+if ($LASTEXITCODE -ne 0) {
+    Write-Error "Windows build for EXE failed"
+    exit 1
+}
+
+Write-Host "Windows build DLL -> $OutputDir\$BinaryName.dll"
+Write-Host "Windows build EXE -> $OutputDir\$BinaryName.exe"
 Write-Host ""
