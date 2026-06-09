@@ -12,7 +12,7 @@ type FileManifest struct {
 	FileLength   uint64 `json:"fileLength"`
 	FilePosition uint64 `json:"filePosition"`
 	FileHash     string `json:"fileHash"`
-	FileTS       uint64 `json:"fileTS"`
+	FileTS       int64  `json:"fileTS"`
 	BlobPath     string `json:"blobPath"`
 }
 

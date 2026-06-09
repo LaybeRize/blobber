@@ -26,11 +26,11 @@ def _load_lib() -> ctypes.CDLL:
                              ctypes.POINTER(ctypes.c_int64)]
     lib.BlobOpen.restype = ctypes.c_int64
 
-    # int64_t BlobCompress(char* filePath, uint64_t* fileLength, uint64_t* filePosition, uint64_t* fileLastModifiedNs, char** fileHash, int64_t* fileChanged);
+    # int64_t BlobCompress(char* filePath, uint64_t* fileLength, uint64_t* filePosition, int64_t* fileLastModifiedNs, char** fileHash, int64_t* fileChanged);
     lib.BlobCompress.argtypes = [ctypes.c_char_p,
                                  ctypes.POINTER(ctypes.c_uint64),
                                  ctypes.POINTER(ctypes.c_uint64),
-                                 ctypes.POINTER(ctypes.c_uint64),
+                                 ctypes.POINTER(ctypes.c_int64),
                                  ctypes.POINTER(ctypes.c_char_p),
                                  ctypes.POINTER(ctypes.c_int64)]
     lib.BlobCompress.restype = ctypes.c_int64
@@ -88,7 +88,7 @@ def _load_lib() -> ctypes.CDLL:
 
     # int64_t ReadFromVersion(int64_t overwriteExistingFiles, StatCallback callback);
     lib.ReadFromVersion.argtypes = [ctypes.c_int64,
-                                    ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_uint64)]
+                                    ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)]
     lib.ReadFromVersion.restype = ctypes.c_int64
 
     # int64_t EstimateRead(int64_t overwriteExistingFiles);
@@ -108,6 +108,10 @@ def _load_lib() -> ctypes.CDLL:
     # void StreamArrayToDLL(ReadCallback callback);
     lib.StreamArrayToDLL.argtypes = [ctypes.CFUNCTYPE(ctypes.c_char_p)]
     lib.StreamArrayToDLL.restype = None
+
+    # void ArrayExtendToDLL(ReadCallback callback);
+    lib.ArrayExtendToDLL.argtypes = [ctypes.CFUNCTYPE(ctypes.c_char_p)]
+    lib.ArrayExtendToDLL.restype = None
 
     # char* GetError();
     lib.GetError.argtypes = []
@@ -177,7 +181,7 @@ class BlobSession:
         """
         file_length_c = ctypes.c_uint64(file_length)
         file_position_c = ctypes.c_uint64(file_position)
-        file_ts_c = ctypes.c_uint64(file_ts)
+        file_ts_c = ctypes.c_int64(file_ts)
 
         hash_ptr = ctypes.c_char_p(None if hash_string is None else hash_string.encode(self._ENCODING))
         file_changed = ctypes.c_int64(0)
@@ -420,10 +424,10 @@ class BlobSession:
         """
         self.__write_array(paths)
         overwrite = ctypes.c_int64(1 if overwrite_existing_files else 0)
-        callback = ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_uint64)
+        callback = ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)
 
-        def stat_printer(actual_files_written, bytes_written):
-            print(f"Processed {actual_files_written} files with a total of {bytes_written:_} bytes.")
+        def stat_printer(processed, actual_files_written, bytes_written):
+            print(f"Processed {processed} paths, with a total of {actual_files_written} files ({bytes_written:_}B) restored.")
 
         cb_statistics = callback(stat_printer)
         success = self._lib.ReadFromVersion(overwrite, cb_statistics)
@@ -480,6 +484,22 @@ class BlobSession:
 
         cb_distribute = callback(distribute)
         self._lib.StreamArrayToDLL(cb_distribute)
+
+    def __extend_array(self, strings: list[str]) -> None:
+        callback = ctypes.CFUNCTYPE(ctypes.c_char_p)
+
+        results = [ctypes.create_string_buffer(val.encode(self._ENCODING)) for val in strings]
+        index = 0
+
+        def distribute():
+            nonlocal index
+            if index < len(results):
+                index += 1
+                return ctypes.addressof(results[index - 1])
+            return None
+
+        cb_distribute = callback(distribute)
+        self._lib.ArrayExtendToDLL(cb_distribute)
 
     def __read_error(self) -> str:
         txt_ptr = self._lib.GetError()

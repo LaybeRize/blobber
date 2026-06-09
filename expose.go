@@ -9,7 +9,7 @@ package main
 // just a typedef — no header needed, pure C type syntax
 typedef void (*WriteCallback)(const char*);
 typedef const char* (*ReadCallback)();
-typedef void (*StatCallback)(int64_t, uint64_t);
+typedef void (*StatCallback)(int64_t, int64_t, uint64_t);
 
 static void write_callback(WriteCallback cb, const char* s) {
     cb(s);
@@ -19,8 +19,8 @@ static const char* read_callback(ReadCallback cb) {
 	return cb();
 }
 
-static void stat_callback(StatCallback cb, int64_t f, uint64_t b) {
-	cb(f, b);
+static void stat_callback(StatCallback cb,int64_t p, int64_t f, uint64_t b) {
+	cb(p, f, b);
 }
 */
 import "C"
@@ -80,7 +80,7 @@ func BlobCompress(
 	filePath *C.char, // [in]
 	fileLength *C.uint64_t, // [in/out]
 	filePosition *C.uint64_t, // [in/out]
-	fileLastModifiedNs *C.uint64_t, // [in/out]
+	fileLastModifiedNs *C.int64_t, // [in/out]
 	fileHash **C.char, // [in/out] If pre-allocated at least 65-byte
 	fileChanged *C.int64_t, // [out] 0=false 1=true
 ) C.int64_t {
@@ -88,7 +88,7 @@ func BlobCompress(
 	rtCode, newHash := BlobCompressGo(C.GoString(filePath),
 		(*uint64)(unsafe.Pointer(fileLength)),
 		(*uint64)(unsafe.Pointer(filePosition)),
-		(*uint64)(unsafe.Pointer(fileLastModifiedNs)),
+		(*int64)(unsafe.Pointer(fileLastModifiedNs)),
 		hashRead,
 		(*int64)(unsafe.Pointer(fileChanged)),
 	)
@@ -244,10 +244,10 @@ func ReadFromVersion(
 	overwriteExistingFiles C.int64_t, // [in]
 	callback C.StatCallback, // [in]
 ) C.int64_t {
-	internalCallback := func(filesWritten int64, bytesWritten uint64) {
-		C.stat_callback(callback, C.int64_t(filesWritten), C.uint64_t(bytesWritten))
-	}
-	return C.int64_t(ReadFromVersionGo(*streamingValues, overwriteExistingFiles != 0, &internalCallback))
+	return C.int64_t(ReadFromVersionGo(*streamingValues, overwriteExistingFiles != 0,
+		func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {
+			C.stat_callback(callback, C.int64_t(filesProcessed), C.int64_t(filesWritten), C.uint64_t(bytesWritten))
+		}))
 }
 
 // Important Notice: Before this function is called, StreamArrayToDLL() must be called with the
@@ -306,6 +306,23 @@ func StreamArrayToDLL(
 		stream = append(stream, C.GoString(cStr))
 	}
 	streamingValues = &stream
+}
+
+//export ArrayExtendToDLL
+func ArrayExtendToDLL(
+	callback C.ReadCallback, // [in]
+) {
+	if streamingValues == nil {
+		return
+	}
+	stream := *streamingValues
+	for {
+		cStr := C.read_callback(callback)
+		if cStr == nil {
+			break
+		}
+		stream = append(stream, C.GoString(cStr))
+	}
 }
 
 // GetError exposes the error byte buffer to the user that wants to read on it.

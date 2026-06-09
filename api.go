@@ -76,7 +76,7 @@ func BlobCompressGo(
 	filePath string,
 	fileLength *uint64,
 	filePosition *uint64,
-	fileLastModifiedNs *uint64,
+	fileLastModifiedNs *int64,
 	prevHash *string,
 	fileChanged *int64,
 ) (int64, string) {
@@ -95,7 +95,7 @@ func BlobCompressGo(
 	}
 
 	curLen := uint64(info.Size())
-	curMtime := uint64(info.ModTime().UnixNano())
+	curMtime := info.ModTime().UnixNano()
 
 	isFirst := prevHash == nil
 	var newHash string
@@ -413,7 +413,7 @@ func TryWritingToVersionGo(path string, position *uint64) (int64, bool) {
 	var fileLength uint64
 	//In case the file is skipped keep the position the same
 	filePosition := *position
-	var fileLastModifiedNs uint64
+	var fileLastModifiedNs int64
 	var prevHash *string = nil
 	var fileChanged int64
 	var blobPath = currentVersion.BlobPath
@@ -466,21 +466,36 @@ func StopWriteToVersionGo() (int64, string) {
 func ReadFromVersionGo(
 	matches []string,
 	overwriteExistingFiles bool,
-	callback *func(filesWritten int64, bytesWritten uint64), // being called after every processed file
+	callback func(filesProcessed int64, filesWritten int64, bytesWritten uint64), // being called after every processed file
 ) int64 {
 	if currentVersion == nil {
 		return setErr("ReadFromVersion: can't read from a version that isn't loaded")
 	}
 	if len(currentVersion.Files) == 0 {
+		callback(0, 0, 0)
 		return rcOK
 	}
 	currBlob := ""
-	localWrapFiles := int64(len(currentVersion.Files)) / Divider
+	localWrapFiles := (int64(len(currentVersion.Files)) / Divider) + 1
 	localNextBytesStep := ByteMarker
 	var filesWritten int64 = 0
+	var filesProcessed int64 = 0
 	var bytesWritten uint64 = 0
 
 	for _, file := range currentVersion.Files {
+		// Do it this way so the last callback() function call has at least one variable that is different
+		// from the last call from here.
+		filesProcessed += 1
+		if filesProcessed%localWrapFiles == 0 {
+			if bytesWritten > localNextBytesStep {
+				localNextBytesStep = bytesWritten + ByteMarker
+			}
+			callback(filesProcessed-1, filesWritten, bytesWritten)
+		} else if bytesWritten > localNextBytesStep {
+			localNextBytesStep = bytesWritten + ByteMarker
+			callback(filesProcessed-1, filesWritten, bytesWritten)
+		}
+
 		_, err := os.Stat(file.FilePath)
 		if (!overwriteExistingFiles && os.IsExist(err)) || (len(matches) != 0 && !matchAnyHandle(file.FilePath, matches)) {
 			continue
@@ -490,10 +505,8 @@ func ReadFromVersionGo(
 			if retCode := BlobTryCloseGo(); retCode != rcOK {
 				return retCode
 			}
-
 			currBlob = file.BlobPath
-			retCode := BlobOpenGo(getVersionBlobWithBlobName(currBlob), "", nil)
-			if retCode != rcOK {
+			if retCode := BlobOpenGo(getVersionBlobWithBlobName(currBlob), "", nil); retCode != rcOK {
 				return retCode
 			}
 		}
@@ -506,16 +519,9 @@ func ReadFromVersionGo(
 
 		filesWritten += 1
 		bytesWritten += length
-
-		if callback != nil {
-			if filesWritten%localWrapFiles == 0 {
-				(*callback)(filesWritten, bytesWritten)
-			} else if bytesWritten > localNextBytesStep {
-				localNextBytesStep = bytesWritten + ByteMarker
-				(*callback)(filesWritten, bytesWritten)
-			}
-		}
 	}
+
+	callback(filesProcessed, filesWritten, bytesWritten)
 
 	if retCode := BlobTryCloseGo(); retCode != rcOK {
 		return retCode
