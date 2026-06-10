@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import ctypes
 import glob
 import sys
@@ -132,26 +134,41 @@ def _get_lib() -> ctypes.CDLL:
     return _LIB
 
 class BlobSession:
-    def __init__(self, message_amount: int = 20, bytes_to_read_until_next_message: int = 64 * 1024 * 1024):
+    def __init__(self, message_amount: int = 20, bytes_to_read_until_next_message: int = 128 * 1024 * 1024):
         self._lib  = _get_lib()
         self._ENCODING = "UTF-8"
         self._MESSAGE_AMOUNT = message_amount
         self._BYTES_MARKER = bytes_to_read_until_next_message
         self.__update_stats(message_amount, bytes_to_read_until_next_message)
 
+        self.__compression_mapping = {
+            "VERY LOW": 0,
+            "LOW": 3,
+            "MIDDLE": 6,
+            "HIGH": 9,
+            "VERY HIGH": 12,
+        }
+        self.__STANDARD_COMPRESSION = self.__compression_mapping["MIDDLE"]
+
+    def set_standard_compression_level(self, map_string: str) -> BlobSession:
+        if map_string not in self.__compression_mapping:
+            raise RuntimeError(f"Compression level '{map_string}' not supported.")
+        self.__STANDARD_COMPRESSION = self.__compression_mapping[map_string]
+        return self
+
     # --------------- Direct Access Functions ---------------
 
-    def open_for_writing(self, path: str, compression_level: int | None = 7):
+    def open_for_writing(self, path: str, compression_level: int | None = None):
         """
         Opens the blobber.dll for writing to a blob file.
 
         :param path: the path of the blob file
         :param compression_level: the zstd compression level that should be used
         """
-        if compression_level is not None:
-            comp_level_val = ctypes.c_int64(compression_level)
-            compression_level = ctypes.byref(comp_level_val)
-        success = self._lib.BlobOpen(None, path.encode(self._ENCODING), compression_level)
+        if compression_level is None:
+            compression_level = self.__STANDARD_COMPRESSION
+        comp_level_val = ctypes.c_int64(compression_level)
+        success = self._lib.BlobOpen(None, path.encode(self._ENCODING), ctypes.byref(comp_level_val))
         if not success:
             raise RuntimeError(self.__read_error())
 
@@ -365,7 +382,7 @@ class BlobSession:
             raise RuntimeError(self.__read_error())
         return version_info_ptr.value.decode(self._ENCODING)
 
-    def __write_to_version(self, glob_commands: list[str], compression_level: int | None = 7) -> tuple[str, list[str]]:
+    def __write_to_version(self, glob_commands: list[str], compression_level: int | None = None) -> tuple[str, list[str]]:
         """
         Writes all files specified by the glob commands to the current version.
         The function will print periodic information about its progress.
@@ -374,11 +391,10 @@ class BlobSession:
         :param compression_level: the desired compression level for the resulting blob
         :return: a tuple containing the compression rate (str) and list of files in the version (list[str])
         """
-        if compression_level is not None:
-            comp_level_val = ctypes.c_int64(compression_level)
-            comp_ptr = ctypes.byref(comp_level_val)
-        else:
-            comp_ptr = None
+        if compression_level is None:
+            compression_level = self.__STANDARD_COMPRESSION
+        comp_level_val = ctypes.c_int64(compression_level)
+
         callback = ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)
         statistics_ptr = ctypes.c_char_p(None)
 
@@ -393,7 +409,7 @@ class BlobSession:
         cb_statistics = callback(stat_printer)
 
         print("Creating new Version.")
-        success = self._lib.WriteToVersion(comp_ptr,
+        success = self._lib.WriteToVersion(ctypes.byref(comp_level_val),
                                            cb_statistics,
                                            ctypes.byref(statistics_ptr))
         if not success:
