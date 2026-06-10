@@ -395,6 +395,16 @@ func LoadAndSetPreviousVersionGo(oldVersionName string) int64 {
 	return rcOK
 }
 
+func GetVersionInfoGo() (int64, string) {
+	if currentVersion == nil {
+		return setErr("GetVersionInfo: can't return version info without version."), ""
+	}
+	return rcOK, fmt.Sprintf("Name: %s\nCreated: %s\nFiles: %d",
+		currentVersion.VersionName,
+		time.Unix(0, int64(currentVersion.Created)).UTC().In(time.Local).Format(time.RFC3339),
+		len(currentVersion.Files))
+}
+
 func StartWriteToVersionGo(compression *int64) int64 {
 	if currentVersion == nil {
 		return setErr("StartWriteToVersion: can't write to a version that isn't opened")

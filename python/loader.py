@@ -79,6 +79,10 @@ def _load_lib() -> ctypes.CDLL:
     lib.LoadAndSetPreviousVersion.argtypes = [ctypes.c_char_p]
     lib.LoadAndSetPreviousVersion.restype = ctypes.c_int64
 
+    # int64_t GetVersionInfo(char** versionInfo);
+    lib.GetVersionInfo.argtypes = [ctypes.POINTER(ctypes.c_char_p)]
+    lib.GetVersionInfo.restype = ctypes.c_int64
+
     # int64_t WriteToVersion(int64_t* compression, StatCallback callback, char** compressionRate);
     lib.WriteToVersion.argtypes = [ctypes.POINTER(ctypes.c_int64),
                                    ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64),
@@ -353,6 +357,13 @@ class BlobSession:
         success = self._lib.LoadAndSetPreviousVersion(version_name.encode(self._ENCODING))
         if not success:
             raise RuntimeError(self.__read_error())
+
+    def get_version_info(self) -> str:
+        version_info_ptr = ctypes.c_char_p(None)
+        success = self._lib.GetVersionInfo(ctypes.byref(version_info_ptr))
+        if not success:
+            raise RuntimeError(self.__read_error())
+        return version_info_ptr.value.decode(self._ENCODING)
 
     def __write_to_version(self, glob_commands: list[str], compression_level: int | None = 7) -> tuple[str, list[str]]:
         """

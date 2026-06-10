@@ -200,6 +200,15 @@ func LoadAndSetPreviousVersion(
 	return C.int64_t(LoadAndSetPreviousVersionGo(C.GoString(previousVersionName)))
 }
 
+//export GetVersionInfo
+func GetVersionInfo(
+	versionInfo **C.char, // [out] Do not preallocate
+) C.int64_t {
+	retCode, versionInfoString := GetVersionInfoGo()
+	writeDoublePointer(versionInfo, &generalTextBuffer[0], versionInfoString)
+	return C.int64_t(retCode)
+}
+
 // Important Notice: Before this function is called, StreamArrayToDLL() must be called with the
 // list of file paths to process, even if the list is empty, so that the internally kept array that is used
 // in the function is cleaned up. If StreamArrayToDLL() is not called before, the function might not behave

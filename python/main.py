@@ -106,6 +106,7 @@ def test_version_functions():
     session.open_overview(ver_dir)
     session.load_repo("test_repo")
     session.load_version("version1")
+    print(session.get_version_info())
 
     files = session.estimate_files_read(False, [])
     if len(files) != 0:
