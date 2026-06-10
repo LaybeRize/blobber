@@ -7,26 +7,21 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-
-	"github.com/klauspost/compress/zstd"
 )
 
 type CompressionWriter struct {
 	in       *os.File
-	enc      *zstd.Encoder
+	enc      *ZStdWriter
 	position uint64
 	filePath string
 }
 
 func openFileWrite(path string, level int) (error, *CompressionWriter) {
-	if level == -1 {
-		level = 6
-	}
 	f, err := os.Create(path)
 	if err != nil {
 		return err, nil
 	}
-	enc, err := zstd.NewWriter(f, zstd.WithEncoderLevel(zstd.EncoderLevelFromZstd(level)))
+	enc, err := NewZStdWriter(f, level)
 	if err != nil {
 		return err, nil
 	}
@@ -79,7 +74,7 @@ func (c *CompressionWriter) close() error {
 
 type DecompressionWriter struct {
 	in       *os.File
-	dec      *zstd.Decoder
+	dec      *ZStdReader
 	position uint64
 }
 
@@ -88,7 +83,7 @@ func openFileRead(path string) (error, *DecompressionWriter) {
 	if err != nil {
 		return err, nil
 	}
-	dec, err := zstd.NewReader(f, zstd.WithDecoderConcurrency(1))
+	dec, err := NewZStdReader(f)
 	if err != nil {
 		return err, nil
 	}
@@ -170,7 +165,7 @@ func ReadFromFile(path string, readerFunc func(reader io.Reader) error) error {
 		return err
 	}
 	defer f.Close()
-	dec, err := zstd.NewReader(f, zstd.WithDecoderConcurrency(1))
+	dec, err := NewZStdReader(f)
 	if err != nil {
 		return err
 	}
@@ -184,7 +179,7 @@ func ReadToFile(path string, writerFunc func(reader io.Writer) error) error {
 		return err
 	}
 	defer f.Close()
-	enc, err := zstd.NewWriter(f, zstd.WithEncoderLevel(zstd.SpeedBetterCompression))
+	enc, err := NewZStdWriter(f, -1)
 	if err != nil {
 		return err
 	}

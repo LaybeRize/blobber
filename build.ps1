@@ -18,7 +18,7 @@ Write-Host "Building Windows DLL..."
 $env:GOOS   = "windows"
 $env:GOARCH = "amd64"
 
-go build -mod=vendor -buildmode=c-shared -o "$OutputDir\$BinaryName.dll" .
+go build -buildmode=c-shared -o "$OutputDir\$BinaryName.dll" .
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Windows build for DLL failed"
@@ -27,7 +27,7 @@ if ($LASTEXITCODE -ne 0) {
 
 Write-Host "Building Windows EXE..."
 
-go build -mod=vendor -o "$OutputDir\$BinaryName.exe" -tags cli .
+go build -o "$OutputDir\$BinaryName.exe" -tags cli .
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "Windows build for EXE failed"
