@@ -15,8 +15,9 @@ Write-Host ""
 
 # ── Build Windows DLL ─────────────────────────────────────────────────────────
 Write-Host "Building Windows DLL..."
-$env:GOOS   = "windows"
-$env:GOARCH = "amd64"
+$env:GOOS        = "windows"
+$env:GOARCH      = "amd64"
+$env:CGO_ENABLED = 1
 
 go build -buildmode=c-shared -o "$OutputDir\$BinaryName.dll" .
 
