@@ -40,6 +40,14 @@ func main() {
 	case "version":
 		cmdVersionSession(args)
 
+	// Archive (non-interactive)
+	case "archive":
+		cmdArchive(args)
+
+	// Archive (interactive)
+	case "archive-session":
+		cmdArchiveSession(args)
+
 	case "help", "--help", "-h":
 		printUsage()
 
@@ -524,8 +532,357 @@ func sessionRead(args []string, estimateOnly bool) {
 }
 
 // -----------------------------------------------------------------------------
+// ARCHIVE blobber archive <sub-command> [args...]
+//
+//   blobber archive <folder> create <name>
+//   blobber archive <folder> add-group <group-name> <path-prefix> <path|dir>...
+//   blobber archive <folder> load
+//   blobber archive <folder> extract [--skip <group>]... [--map <group>=<prefix>]...
+// -----------------------------------------------------------------------------
+
+func cmdArchive(args []string) {
+	if len(args) < 2 {
+		fatalf("usage: blobber archive <folder> create|add-group|load|extract ...\n")
+	}
+
+	folder := args[0]
+	sub := args[1]
+	rest := args[2:]
+
+	switch sub {
+	case "load":
+		// blobber archive <folder> load  — prints the group list
+		retCode, groups := LoadArchiveGo(folder)
+		if retCode != rcOK {
+			fatalf("load archive: %s\n", errorMsg)
+		}
+		if CloseArchiveGo() != rcOK {
+			fatalf("close archive: %s\n", errorMsg)
+		}
+		if len(groups) == 0 {
+			fmt.Println("(no groups)")
+		} else {
+			for _, g := range groups {
+				fmt.Println(" •", g)
+			}
+		}
+
+	case "extract":
+		// blobber archive <folder> extract [--skip <group>]... [--map <group>=<prefix>]...
+		retCode, groups := LoadArchiveGo(folder)
+		if retCode != rcOK {
+			fatalf("load archive for extraction: %s\n", errorMsg)
+		}
+
+		mapping := buildPrefixMapping(groups, rest)
+
+		if ReadArchiveGo(mapping) != rcOK {
+			fatalf("extract archive: %s\n", errorMsg)
+		}
+		if CloseArchiveGo() != rcOK {
+			fatalf("close archive: %s\n", errorMsg)
+		}
+		fmt.Println("Extraction complete.")
+
+	default:
+		fatalf("unknown archive sub-command %q — run 'blobber help'\n", sub)
+	}
+}
+
+// -----------------------------------------------------------------------------
+// ARCHIVE SESSION blobber archive-session <folder>
+//
+// Keeps the archive open across multiple interactive commands so the user can
+// create an archive, add groups, and extract — without reloading state each time.
+// -----------------------------------------------------------------------------
+
+func cmdArchiveSession(args []string) {
+	if len(args) < 1 {
+		fatalf("usage: blobber archive-session <folder>\n")
+	}
+
+	folder := args[0]
+
+	fmt.Printf("Blobber archive session started for folder %q.\n", folder)
+	fmt.Println("Type 'help' for commands, 'exit' to save and quit.")
+
+	scanner := bufio.NewScanner(os.Stdin)
+
+	for {
+		fmt.Print(archiveSessionPrompt())
+		if !scanner.Scan() {
+			break
+		}
+
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+
+		parts := splitArgs(line)
+		if len(parts) == 0 {
+			continue
+		}
+
+		switch parts[0] {
+		case "help":
+			printArchiveSessionHelp()
+
+		case "exit", "quit":
+			if currentArchive != nil {
+				if CloseArchiveGo() != rcOK {
+					fmt.Fprintf(os.Stderr, "warning: close archive: %s\n", errorMsg)
+				} else {
+					fmt.Println("Archive saved.")
+				}
+			}
+			fmt.Println("Goodbye.")
+			return
+
+		case "status":
+			printArchiveStatus(folder)
+
+		case "create":
+			// create <name>
+			if len(parts) < 2 {
+				sessionErr("usage: create <name>")
+				continue
+			}
+			if currentArchive != nil {
+				sessionErr("an archive is already open — close it first with 'exit' or 'close'")
+				continue
+			}
+			if CreateArchiveGo(parts[1], folder) != rcOK {
+				sessionErr(errorMsg)
+				continue
+			}
+			fmt.Printf(" Archive %q created and open for writing.\n", parts[1])
+
+		case "load":
+			// load
+			if currentArchive != nil {
+				sessionErr("an archive is already open — close it first with 'close'")
+				continue
+			}
+			retCode, groups := LoadArchiveGo(folder)
+			if retCode != rcOK {
+				sessionErr(errorMsg)
+				continue
+			}
+			fmt.Printf(" Archive %q loaded (%d group(s)).\n", currentArchive.ArchiveName, len(groups))
+			if len(groups) > 0 {
+				for _, g := range groups {
+					fmt.Println("  •", g)
+				}
+			}
+
+		case "groups":
+			if currentArchive == nil {
+				sessionErr("no archive open — use 'create' or 'load' first")
+				continue
+			}
+			if len(currentArchive.Groups) == 0 {
+				fmt.Println(" (no groups)")
+			} else {
+				for _, g := range currentArchive.Groups {
+					fmt.Println(" •", g)
+				}
+			}
+
+		case "add-group":
+			// add-group <group-name> <path-prefix> [--from-file <file>] <path|dir>...
+			if currentArchive == nil {
+				sessionErr("no archive open — use 'create' first")
+				continue
+			}
+			if currentWriteFile == nil {
+				sessionErr("archive is open for reading, not writing — load after create to add groups")
+				continue
+			}
+			if len(parts) < 4 {
+				sessionErr("usage: add-group <group-name> <path-prefix> <path|dir>...")
+				continue
+			}
+			sessionArchiveAddGroup(parts[1:])
+
+		case "close":
+			if currentArchive == nil {
+				sessionErr("no archive is currently open")
+				continue
+			}
+			if CloseArchiveGo() != rcOK {
+				sessionErr(errorMsg)
+				continue
+			}
+			fmt.Println(" Archive closed and saved.")
+
+		case "extract":
+			// extract [--skip <group>]... [--map <group>=<prefix>]...
+			if currentArchive == nil {
+				sessionErr("no archive open — use 'load' first")
+				continue
+			}
+			if currentReadFile == nil {
+				sessionErr("archive is open for writing — close it first, then load to extract")
+				continue
+			}
+			mapping := buildPrefixMapping(currentArchive.Groups, parts[1:])
+			if ReadArchiveGo(mapping) != rcOK {
+				sessionErr(errorMsg)
+				continue
+			}
+			fmt.Println(" Extraction complete.")
+
+		case "list-files":
+			if currentArchive == nil {
+				sessionErr("no archive open")
+				continue
+			}
+			if len(currentArchive.Files) == 0 {
+				fmt.Println(" (no files)")
+			} else {
+				for _, f := range currentArchive.Files {
+					fmt.Printf(" [%s] %s (%s)\n", f.GroupName, f.RelativeFilePath, formatBytes(f.FileLength))
+				}
+			}
+
+		default:
+			sessionErr(fmt.Sprintf("unknown command %q — type 'help'", parts[0]))
+		}
+	}
+
+	// Ctrl-D: save cleanly if still open
+	if currentArchive != nil {
+		if CloseArchiveGo() != rcOK {
+			fmt.Fprintf(os.Stderr, "warning: close archive: %s\n", errorMsg)
+		}
+	}
+	fmt.Println("\nSession saved.")
+}
+
+// sessionArchiveAddGroup handles: add-group <group-name> <path-prefix> [--from-file <file>] <path|dir>...
+func sessionArchiveAddGroup(args []string) {
+	if len(args) < 2 {
+		sessionErr("usage: add-group <group-name> <path-prefix> [--from-file <file>] <path|dir>...")
+		return
+	}
+
+	groupName := args[0]
+	pathPrefix := args[1]
+	rest := args[2:]
+
+	var inputs []string
+	for i := 0; i < len(rest); i++ {
+		if rest[i] == "--from-file" {
+			if i+1 >= len(rest) {
+				sessionErr("--from-file requires a path")
+				return
+			}
+			i++
+			lines, err := readLines(rest[i])
+			if err != nil {
+				sessionErr(err.Error())
+				return
+			}
+			inputs = append(inputs, lines...)
+		} else {
+			inputs = append(inputs, rest[i])
+		}
+	}
+
+	files, err := resolveInputs(inputs)
+	if err != nil {
+		sessionErr(err.Error())
+		return
+	}
+
+	if len(files) == 0 {
+		sessionErr("no files resolved from provided inputs")
+		return
+	}
+
+	if AddNewGroupGo(groupName, pathPrefix, files) != rcOK {
+		sessionErr(errorMsg)
+		return
+	}
+
+	fmt.Printf(" Group %q added (%d file(s)).\n", groupName, len(files))
+}
+
+// -----------------------------------------------------------------------------
 // HELPERS
 // -----------------------------------------------------------------------------
+
+// buildPrefixMapping constructs the map[string]*string for ReadArchiveGo from
+// CLI flags. All known groups default to their name as prefix unless overridden
+// with --map group=prefix or skipped with --skip group.
+//
+// Flags:
+//
+//	--skip <group>          map group -> nil (skip during extraction)
+//	--map <group>=<prefix>  map group -> prefix
+//
+// Groups not mentioned in flags get mapped to their own name as prefix,
+// which extracts files relative to the current directory under the group name.
+func buildPrefixMapping(groups []string, args []string) map[string]*string {
+	mapping := make(map[string]*string, len(groups))
+
+	// default: map each group to itself as prefix
+	for _, g := range groups {
+		name := g
+		mapping[g] = &name
+	}
+
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--skip":
+			if i+1 >= len(args) {
+				fatalf("--skip requires a group name\n")
+			}
+			i++
+			mapping[args[i]] = nil
+
+		case "--map":
+			if i+1 >= len(args) {
+				fatalf("--map requires a group=prefix argument\n")
+			}
+			i++
+			eq := strings.IndexByte(args[i], '=')
+			if eq < 0 {
+				fatalf("--map argument must be in the form group=prefix, got %q\n", args[i])
+			}
+			group := args[i][:eq]
+			prefix := args[i][eq+1:]
+			mapping[group] = &prefix
+		}
+	}
+
+	return mapping
+}
+
+func archiveSessionPrompt() string {
+	name := "-"
+	if currentArchive != nil {
+		name = currentArchive.ArchiveName
+	}
+	return fmt.Sprintf("blobber-archive [%s]> ", name)
+}
+
+func printArchiveStatus(folder string) {
+	fmt.Println(" Folder:", folder)
+	if currentArchive == nil {
+		fmt.Println(" Archive: (none)")
+		return
+	}
+	fmt.Println(" Archive:", currentArchive.ArchiveName)
+	fmt.Printf(" Groups:  %d\n", len(currentArchive.Groups))
+	fmt.Printf(" Files:   %d\n", len(currentArchive.Files))
+	if currentWriteFile != nil {
+		fmt.Println(" Mode:    write")
+	} else if currentReadFile != nil {
+		fmt.Println(" Mode:    read")
+	}
+}
 
 // resolveInputs expands each argument: if it's a directory, walk it and collect
 // all regular files; if it looks like a newline-delimited file (--from-file is
@@ -701,8 +1058,10 @@ func printUsage() {
 Usage:
   blobber compress   <blob-file> [--level N] <path|dir>...
   blobber decompress <blob-file> <target-path> <position> <length>
-  blobber repo       <store-dir> <sub-command> [args...]
-  blobber version    <store-dir> [<repo-name>]
+  blobber repo    <store-dir> <sub-command> [args...]
+  blobber version <store-dir> [<repo-name>]
+  blobber archive         <folder> <sub-command> [args...]
+  blobber archive-session <folder>
 
 Direct blob commands:
   compress    Compress one or more files/directories into a blob.
@@ -726,7 +1085,28 @@ Versioning session (interactive):
       Start an interactive session. The store stays open between commands,
       so you can create/switch repos and versions without reloading state.
       Type 'help' inside the session for available commands.
+ 
+Archive commands (non-interactive):
+  archive <folder> load
+      Print the list of groups stored in the archive.
+ 
+  archive <folder> extract [--skip <group>]... [--map <group>=<prefix>]...
+      Extract all files from the archive.
+      By default each group is extracted under a subdirectory named after the group.
+      --skip <group>          Skip this group entirely during extraction.
+      --map <group>=<prefix>  Extract this group's files under the given prefix instead.
 
+  IMPORTANT INFORMATION:
+      Creation of archives is  only possible in interactive mode.
+ 
+Archive session (interactive):
+ 
+  archive-session <folder>
+      Start an interactive archive session for the given folder.
+      The archive stays open between commands so you can create an archive,
+      add groups, and extract without reloading state on every call.
+      Type 'help' inside the session for available commands.
+ 
 Build tags:
   Build this CLI with:  go build -tags cli .
   Build the DLL with:   go build -buildmode=c-shared .
@@ -765,5 +1145,32 @@ func printSessionHelp() {
 
   exit / quit                Save the session and exit.
 
+`)
+}
+
+func printArchiveSessionHelp() {
+	fmt.Print(`
+Archive session commands:
+ 
+  status                   Show current folder, archive name, group and file counts.
+  create <name>            Create a new archive (opens it for writing).
+  load                     Load the existing archive in the session folder (opens for reading).
+  close                    Save the archive to disk and close it.
+  groups                   List all groups in the open archive.
+  list-files               List all files recorded in the open archive.
+ 
+  add-group <group-name> <path-prefix> [--from-file <list.txt>] <path|dir>...
+      Compress files into the open archive under the given group name.
+      path-prefix is stripped from each file path to form the stored relative path.
+      --from-file reads newline-separated paths from a text file.
+      Directories are walked recursively.
+ 
+  extract [--skip <group>]... [--map <group>=<prefix>]...
+      Decompress files from the open archive.
+      By default each group is extracted under a subdirectory named after the group.
+      --skip <group>         Skip this group entirely.
+      --map <group>=<prefix> Extract this group's files under the given prefix.
+ 
+  exit / quit              Save the archive if open and exit the session.
 `)
 }
