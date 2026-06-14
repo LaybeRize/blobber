@@ -12,6 +12,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -558,6 +559,159 @@ func EstimateReadGo(
 		counter += 1
 	}
 	return rcOK, res[:counter]
+}
+
+// -----------------------------------------------------------------------------
+// ARCHIVE FUNCTIONS
+// -----------------------------------------------------------------------------
+
+const (
+	ArchiveOverviewName = "archive.overview"
+	ArchiveBlobName     = "archive.blob"
+)
+
+var currentArchive *ArchiveOverview = nil
+
+func CreateArchiveGo(name string, folder string) int64 {
+	if currentArchive != nil {
+		return setErr("CreateArchive: an archive is already open, close it first")
+	}
+
+	if err := os.MkdirAll(folder, 0755); err != nil {
+		return setErr(fmt.Sprintf("CreateArchive: failed to create archive folder '%s': %v", folder, err))
+	}
+
+	currentArchive = &ArchiveOverview{
+		ArchiveName: name,
+		Path:        folder,
+		Groups:      make([]string, 0),
+		Files:       make([]ArchiveFileManifest, 0),
+	}
+
+	blobPath := path.Join(folder, ArchiveBlobName)
+	if retCode := BlobOpenGo("", blobPath, nil); retCode != rcOK {
+		currentArchive = nil
+		return setErr(fmt.Sprintf("CreateArchive: failed to open blob for writing: %v", errorMsg))
+	}
+
+	return rcOK
+}
+
+func AddNewGroupGo(groupName string, pathPrefix string, paths []string) int64 {
+	if currentArchive == nil {
+		return setErr("AddNewGroup: no archive is currently open")
+	}
+
+	for _, group := range currentArchive.Groups {
+		if group == groupName {
+			return setErr(fmt.Sprintf("AddNewGroup: group '%s' already exists in archive", groupName))
+		}
+	}
+
+	newFiles := make([]ArchiveFileManifest, 0, len(paths))
+
+	for _, filePath := range paths {
+		if !strings.HasPrefix(filePath, pathPrefix) {
+			return setErr(fmt.Sprintf(
+				"AddNewGroup: path '%s' does not have the required prefix '%s'", filePath, pathPrefix))
+		}
+
+		relativePath := strings.TrimPrefix(filePath, pathPrefix)
+
+		var fileLength uint64
+		var filePosition = currentWriteFile.position
+		var fileLastModifiedNs int64
+		var fileChanged int64
+
+		retCode, _ := BlobCompressGo(filePath, &fileLength, &filePosition, &fileLastModifiedNs, nil, &fileChanged)
+		if retCode != rcOK {
+			return retCode
+		}
+
+		if fileChanged == SkippedFile {
+			continue
+		}
+
+		newFiles = append(newFiles, ArchiveFileManifest{
+			GroupName:        groupName,
+			RelativeFilePath: relativePath,
+			FileLength:       fileLength,
+			FilePosition:     filePosition,
+		})
+
+		currentWriteFile.position += fileLength
+	}
+
+	currentArchive.Groups = append(currentArchive.Groups, groupName)
+	currentArchive.Files = append(currentArchive.Files, newFiles...)
+
+	return rcOK
+}
+
+func LoadArchiveGo(folder string) (int64, []string) {
+	if currentArchive != nil {
+		return setErr("LoadArchive: an archive is already open, close it first"), nil
+	}
+
+	overviewPath := path.Join(folder, ArchiveOverviewName)
+
+	currentArchive = &ArchiveOverview{}
+	if err := currentArchive.StreamFromFile(overviewPath); err != nil {
+		currentArchive = nil
+		return setErr(fmt.Sprintf("LoadArchive: failed to load archive overview from '%s': %v",
+			overviewPath, err)), nil
+	}
+
+	blobPath := path.Join(folder, ArchiveBlobName)
+	if retCode := BlobOpenGo(blobPath, "", nil); retCode != rcOK {
+		currentArchive = nil
+		return setErr(fmt.Sprintf("LoadArchive: failed to open blob for reading: %v", errorMsg)), nil
+	}
+
+	return rcOK, currentArchive.Groups
+}
+
+// ReadArchiveGo decompresses files from the archive using the provided prefix mapping.
+// Groups with a nil pointer value in the map are skipped entirely.
+// For included groups, the output path is: *mappedPrefix + RelativeFilePath
+func ReadArchiveGo(prefixMapping map[string]*string) int64 {
+	if currentArchive == nil {
+		return setErr("ReadArchive: no archive is currently open")
+	}
+
+	for _, file := range currentArchive.Files {
+		prefix, exists := prefixMapping[file.GroupName]
+		if !exists || prefix == nil {
+			continue
+		}
+
+		targetPath := path.Join(*prefix, file.RelativeFilePath)
+		position := file.FilePosition
+
+		if retCode := BlobDecompressGo(targetPath, &position, file.FileLength); retCode != rcOK {
+			return retCode
+		}
+	}
+
+	return rcOK
+}
+
+func CloseArchiveGo() int64 {
+	if currentArchive == nil {
+		return setErr("CloseArchive: no archive is currently open")
+	}
+
+	overviewPath := path.Join(currentArchive.Path, ArchiveOverviewName)
+	if err := currentArchive.StreamToFile(overviewPath); err != nil {
+		return setErr(fmt.Sprintf("CloseArchive: failed to save archive overview: %v", err))
+	}
+
+	if retCode := BlobCloseGo(); retCode != rcOK {
+		return retCode
+	}
+
+	currentArchive = nil
+	return rcOK
 }
 
 // -----------------------------------------------------------------------------

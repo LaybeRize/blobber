@@ -100,6 +100,31 @@ def _load_lib() -> ctypes.CDLL:
     lib.EstimateRead.argtypes = [ctypes.c_int64]
     lib.EstimateRead.restype = ctypes.c_int64
 
+    # --------------- Archive Functions ---------------
+
+    # int64_t CreateArchive(char* name, char* folder);
+    lib.CreateArchive.argtypes = [ctypes.c_char_p,
+                                  ctypes.c_char_p]
+    lib.CreateArchive.restype = ctypes.c_int64
+
+    # int64_t AddNewGroup(char* groupName, char* pathPrefix);
+    lib.AddNewGroup.argtypes = [ctypes.c_char_p,
+                                ctypes.c_char_p]
+    lib.AddNewGroup.restype = ctypes.c_int64
+
+    # int64_t LoadArchive(char* folder);
+    lib.LoadArchive.argtypes = [ctypes.c_char_p]
+    lib.LoadArchive.restype = ctypes.c_int64
+
+    # int64_t ReadArchive(ReadCallback keyCallback, ReadCallback valueCallback);
+    lib.ReadArchive.argtypes = [ctypes.CFUNCTYPE(ctypes.c_char_p),
+                                ctypes.CFUNCTYPE(ctypes.c_char_p)]
+    lib.ReadArchive.restype = ctypes.c_int64
+
+    # int64_t CloseArchive();
+    lib.CloseArchive.argtypes = []
+    lib.CloseArchive.restype = ctypes.c_int64
+
     # --------------- Helper Functions ---------------
 
     # void UpdateParameter(fileDivider int64_t, totalByteMarker uint64_t);
@@ -459,6 +484,96 @@ class BlobSession:
             raise RuntimeError(self.__read_error())
 
         return self.__read_array()
+
+    # --------------- Archive Functions ---------------
+
+    def create_archive(self, name: str, folder: str):
+        """
+        Creates a new archive with the given name at the given folder path.
+        Opens a blob for writing into that folder.
+
+        :param name: the name of the archive
+        :param folder: the path to the folder where the archive should be created
+        """
+        success = self._lib.CreateArchive(name.encode(self._ENCODING),
+                                          folder.encode(self._ENCODING))
+        if not success:
+            raise RuntimeError(self.__read_error())
+
+    def add_group_to_archive(self, group_name: str, path_prefix: str, paths: list[str]):
+        """
+        Compresses the given paths into the open archive blob under the given group name,
+        stripping path_prefix from each path to form the stored relative path.
+        Raises a RuntimeError if any path does not start with path_prefix.
+
+        :param group_name: the name of the group to add
+        :param path_prefix: the prefix to strip from each path when storing
+        :param paths: the list of file paths to compress into the group
+        """
+        self.__write_array(paths)
+        success = self._lib.AddNewGroup(group_name.encode(self._ENCODING),
+                                        path_prefix.encode(self._ENCODING))
+        if not success:
+            raise RuntimeError(self.__read_error())
+
+    def load_archive(self, folder: str) -> list[str]:
+        """
+        Loads an existing archive from the given folder, opening the blob for reading.
+
+        :param folder: the path to the folder containing the archive
+        :return: the list of group names contained in the archive
+        """
+        success = self._lib.LoadArchive(folder.encode(self._ENCODING))
+        if not success:
+            raise RuntimeError(self.__read_error())
+        return self.__read_array()
+
+    def read_archive(self, prefix_mapping: dict[str, str | None]):
+        """
+        Decompresses files from the open archive according to the given prefix mapping.
+        Groups mapped to None are skipped entirely.
+        For included groups the output path is: prefix_mapping[group_name] + relative_file_path.
+
+        :param prefix_mapping: a dict of group_name -> target prefix string, or None to skip
+        """
+        buffer_array = [(ctypes.create_string_buffer(k.encode(self._ENCODING)),
+                         ctypes.create_string_buffer(v.encode(self._ENCODING))
+                        if v is not None else None)
+                        for k, v in prefix_mapping.items()]
+
+        key_index = 0
+
+        read_callback = ctypes.CFUNCTYPE(ctypes.c_char_p)
+
+        def distribute_keys():
+            nonlocal key_index
+            if key_index < len(buffer_array):
+                key_index += 1
+                buf, _ = buffer_array[key_index - 1]
+                return ctypes.addressof(buf)
+            return None
+
+        def distribute_values():
+            nonlocal key_index
+            # This is ok, because distribute_keys() is always called before this function, if that contract is ever
+            # not fulfilled this function might not work as expected.
+            _, buf = buffer_array[key_index - 1]
+            return ctypes.addressof(buf) if buf is not None else None
+
+        cb_keys = read_callback(distribute_keys)
+        cb_values = read_callback(distribute_values)
+
+        success = self._lib.ReadArchive(cb_keys, cb_values)
+        if not success:
+            raise RuntimeError(self.__read_error())
+
+    def close_archive(self):
+        """
+        Saves the archive overview to disk and closes the blob.
+        """
+        success = self._lib.CloseArchive()
+        if not success:
+            raise RuntimeError(self.__read_error())
 
     # --------------- Helper Functions ---------------
 

@@ -304,6 +304,88 @@ func EstimateRead(
 }
 
 // -----------------------------------------------------------------------------
+// ARCHIVE FUNCTIONS
+// -----------------------------------------------------------------------------
+
+// CreateArchive creates a new named archive at the given folder path.
+
+//export CreateArchive
+func CreateArchive(
+	name *C.char, // [in]
+	folder *C.char, // [in]
+) C.int64_t {
+	return C.int64_t(CreateArchiveGo(C.GoString(name), C.GoString(folder)))
+}
+
+// AddNewGroup compresses the files at the paths provided via StreamArrayToDLL into the open archive
+// under the given group name, stripping pathPrefix from each path to form the relative stored path.
+// Important Notice: StreamArrayToDLL must be called before this to populate the file path list.
+
+//export AddNewGroup
+func AddNewGroup(
+	groupName *C.char, // [in]
+	pathPrefix *C.char, // [in]
+) C.int64_t {
+	return C.int64_t(AddNewGroupGo(C.GoString(groupName), C.GoString(pathPrefix), *streamingValues))
+}
+
+// LoadArchive loads an existing archive from the given folder.
+// On success the groups array is streamed out via StreamArrayFromDLL.
+
+//export LoadArchive
+func LoadArchive(
+	folder *C.char, // [in]
+) C.int64_t {
+	retCode, groups := LoadArchiveGo(C.GoString(folder))
+	if retCode == rcOK {
+		streamingValues = &groups
+	}
+	return C.int64_t(retCode)
+}
+
+// ReadArchive decompresses files from the open archive according to the prefix mapping.
+// The mapping is supplied via two callbacks: keyCallback streams the group names,
+// valueCallback streams the corresponding target prefix for each group in the same order.
+// Pass a nil/empty string from valueCallback to skip that group.
+
+//export ReadArchive
+func ReadArchive(
+	keyCallback C.ReadCallback, // [in] streams group names
+	valueCallback C.ReadCallback, // [in] streams target prefixes, nil entry = skip group
+) C.int64_t {
+	prefixMapping := make(map[string]*string)
+
+	for {
+		keyCStr := C.read_callback(keyCallback)
+		if keyCStr == nil {
+			break
+		}
+		groupName := C.GoString(keyCStr)
+
+		valCStr := C.read_callback(valueCallback)
+		if valCStr == nil {
+			prefixMapping[groupName] = nil
+		} else {
+			val := C.GoString(valCStr)
+			if val == "" {
+				prefixMapping[groupName] = nil
+			} else {
+				prefixMapping[groupName] = &val
+			}
+		}
+	}
+
+	return C.int64_t(ReadArchiveGo(prefixMapping))
+}
+
+// CloseArchive saves the archive overview to disk and closes the blob.
+
+//export CloseArchive
+func CloseArchive() C.int64_t {
+	return C.int64_t(CloseArchiveGo())
+}
+
+// -----------------------------------------------------------------------------
 // HELPER FUNCTIONS
 // -----------------------------------------------------------------------------
 
