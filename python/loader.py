@@ -107,22 +107,24 @@ def _load_lib() -> ctypes.CDLL:
                                   ctypes.c_char_p]
     lib.CreateArchive.restype = ctypes.c_int64
 
-    # int64_t AddNewGroup(char* groupName, char* pathPrefix);
+    # int64_t AddNewGroup(char* groupName, char* pathPrefix, StatCallback callback);
     lib.AddNewGroup.argtypes = [ctypes.c_char_p,
-                                ctypes.c_char_p]
+                                ctypes.c_char_p,
+                                ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)]
     lib.AddNewGroup.restype = ctypes.c_int64
 
     # int64_t LoadArchive(char* folder);
     lib.LoadArchive.argtypes = [ctypes.c_char_p]
     lib.LoadArchive.restype = ctypes.c_int64
 
-    # int64_t ReadArchive(ReadCallback keyCallback, ReadCallback valueCallback);
+    # int64_t ReadArchive(ReadCallback keyCallback, ReadCallback valueCallback, StatCallback callback);
     lib.ReadArchive.argtypes = [ctypes.CFUNCTYPE(ctypes.c_char_p),
-                                ctypes.CFUNCTYPE(ctypes.c_char_p)]
+                                ctypes.CFUNCTYPE(ctypes.c_char_p),
+                                ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)]
     lib.ReadArchive.restype = ctypes.c_int64
 
-    # int64_t CloseArchive();
-    lib.CloseArchive.argtypes = []
+    # int64_t CloseArchive(char** compressionRate);
+    lib.CloseArchive.argtypes = [ctypes.POINTER(ctypes.c_char_p)]
     lib.CloseArchive.restype = ctypes.c_int64
 
     # --------------- Helper Functions ---------------
@@ -420,7 +422,6 @@ class BlobSession:
             compression_level = self.__STANDARD_COMPRESSION
         comp_level_val = ctypes.c_int64(compression_level)
 
-        callback = ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)
         statistics_ptr = ctypes.c_char_p(None)
 
         print("Transferring path information.")
@@ -428,10 +429,7 @@ class BlobSession:
         for glob_cmd in glob_commands:
             self.__extend_array([val for val in glob.glob(glob_cmd, recursive=True, include_hidden=True)])
 
-        def stat_printer(processed, actual_files_written, bytes_written):
-            print(f"Processed {processed} paths, with a total of {actual_files_written} files ({bytes_written:_}B) compressed.")
-
-        cb_statistics = callback(stat_printer)
+        cb_statistics = self.get_stat_func()
 
         print("Creating new Version.")
         success = self._lib.WriteToVersion(ctypes.byref(comp_level_val),
@@ -457,12 +455,8 @@ class BlobSession:
         """
         self.__write_array(paths)
         overwrite = ctypes.c_int64(1 if overwrite_existing_files else 0)
-        callback = ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)
 
-        def stat_printer(processed, actual_files_written, bytes_written):
-            print(f"Processed {processed} paths, with a total of {actual_files_written} files ({bytes_written:_}B) restored.")
-
-        cb_statistics = callback(stat_printer)
+        cb_statistics = self.get_stat_func()
         success = self._lib.ReadFromVersion(overwrite, cb_statistics)
         if not success:
             raise RuntimeError(self.__read_error())
@@ -510,9 +504,12 @@ class BlobSession:
         :param path_prefix: the prefix to strip from each path when storing
         :param paths: the list of file paths to compress into the group
         """
+        cb_statistics = self.get_stat_func()
         self.__write_array(paths)
         success = self._lib.AddNewGroup(group_name.encode(self._ENCODING),
-                                        path_prefix.encode(self._ENCODING))
+                                        path_prefix.encode(self._ENCODING),
+                                        cb_statistics)
+        print(f"Added Group '{group_name}' to archive.")
         if not success:
             raise RuntimeError(self.__read_error())
 
@@ -562,18 +559,24 @@ class BlobSession:
 
         cb_keys = read_callback(distribute_keys)
         cb_values = read_callback(distribute_values)
+        cb_statistics = self.get_stat_func()
 
-        success = self._lib.ReadArchive(cb_keys, cb_values)
+        success = self._lib.ReadArchive(cb_keys, cb_values, cb_statistics)
+        print("Read all specified files from Archive.")
         if not success:
             raise RuntimeError(self.__read_error())
 
-    def close_archive(self):
+    def close_archive(self) -> str:
         """
         Saves the archive overview to disk and closes the blob.
         """
-        success = self._lib.CloseArchive()
+        statistics_ptr = ctypes.c_char_p(None)
+
+        success = self._lib.CloseArchive(ctypes.byref(statistics_ptr))
         if not success:
             raise RuntimeError(self.__read_error())
+
+        return statistics_ptr.value.decode(self._ENCODING)
 
     # --------------- Helper Functions ---------------
 
@@ -628,3 +631,12 @@ class BlobSession:
         txt_ptr = self._lib.GetError()
         result = ctypes.string_at(txt_ptr).decode(self._ENCODING)
         return result
+
+    @staticmethod
+    def get_stat_func():
+        callback = ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)
+
+        def stat_printer(processed, actual_files_written, bytes_written):
+            print(f"Processed {processed} paths, with a total of {actual_files_written} files ({bytes_written:_}B) compressed.")
+
+        return callback(stat_printer)

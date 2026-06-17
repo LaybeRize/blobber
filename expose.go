@@ -325,8 +325,12 @@ func CreateArchive(
 func AddNewGroup(
 	groupName *C.char, // [in]
 	pathPrefix *C.char, // [in]
+	callback C.StatCallback, // [in]
 ) C.int64_t {
-	return C.int64_t(AddNewGroupGo(C.GoString(groupName), C.GoString(pathPrefix), *streamingValues))
+	return C.int64_t(AddNewGroupGo(C.GoString(groupName), C.GoString(pathPrefix), *streamingValues,
+		func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {
+			C.stat_callback(callback, C.int64_t(filesProcessed), C.int64_t(filesWritten), C.uint64_t(bytesWritten))
+		}))
 }
 
 // LoadArchive loads an existing archive from the given folder.
@@ -352,6 +356,7 @@ func LoadArchive(
 func ReadArchive(
 	keyCallback C.ReadCallback, // [in] streams group names
 	valueCallback C.ReadCallback, // [in] streams target prefixes, nil entry = skip group
+	callback C.StatCallback, // [in]
 ) C.int64_t {
 	prefixMapping := make(map[string]*string)
 
@@ -375,14 +380,21 @@ func ReadArchive(
 		}
 	}
 
-	return C.int64_t(ReadArchiveGo(prefixMapping))
+	return C.int64_t(ReadArchiveGo(prefixMapping,
+		func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {
+			C.stat_callback(callback, C.int64_t(filesProcessed), C.int64_t(filesWritten), C.uint64_t(bytesWritten))
+		}))
 }
 
 // CloseArchive saves the archive overview to disk and closes the blob.
 
 //export CloseArchive
-func CloseArchive() C.int64_t {
-	return C.int64_t(CloseArchiveGo())
+func CloseArchive(
+	compressionRate **C.char, // [out] If pre-allocated at least 10-byte
+) C.int64_t {
+	retCode, stats := CloseArchiveGo()
+	writeDoublePointer(compressionRate, &statisticsBuffer[0], stats)
+	return C.int64_t(retCode)
 }
 
 // -----------------------------------------------------------------------------

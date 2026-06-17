@@ -597,7 +597,12 @@ func CreateArchiveGo(name string, folder string) int64 {
 	return rcOK
 }
 
-func AddNewGroupGo(groupName string, pathPrefix string, paths []string) int64 {
+func AddNewGroupGo(
+	groupName string,
+	pathPrefix string,
+	paths []string,
+	callback func(filesProcessed int64, filesWritten int64, bytesWritten uint64), // being called after every processed file
+) int64 {
 	if currentArchive == nil {
 		return setErr("AddNewGroup: no archive is currently open")
 	}
@@ -610,7 +615,26 @@ func AddNewGroupGo(groupName string, pathPrefix string, paths []string) int64 {
 
 	newFiles := make([]ArchiveFileManifest, 0, len(paths))
 
+	localWrapFiles := (int64(len(paths)) / Divider) + 1
+	localNextBytesStep := ByteMarker
+	var filesWritten int64 = 0
+	var filesProcessed int64 = 0
+	var bytesWritten uint64 = 0
+
 	for _, filePath := range paths {
+		// Do it this way so the last callback() function call has at least one variable that is different
+		// from the last call from here.
+		filesProcessed += 1
+		if filesProcessed%localWrapFiles == 0 {
+			if bytesWritten > localNextBytesStep {
+				localNextBytesStep = bytesWritten + ByteMarker
+			}
+			callback(filesProcessed-1, filesWritten, bytesWritten)
+		} else if bytesWritten > localNextBytesStep {
+			localNextBytesStep = bytesWritten + ByteMarker
+			callback(filesProcessed-1, filesWritten, bytesWritten)
+		}
+
 		if !strings.HasPrefix(filePath, pathPrefix) {
 			return setErr(fmt.Sprintf(
 				"AddNewGroup: path '%s' does not have the required prefix '%s'", filePath, pathPrefix))
@@ -640,7 +664,12 @@ func AddNewGroupGo(groupName string, pathPrefix string, paths []string) int64 {
 		})
 
 		currentWriteFile.position += fileLength
+
+		filesWritten += 1
+		bytesWritten += fileLength
 	}
+
+	callback(filesProcessed, filesWritten, bytesWritten)
 
 	currentArchive.Groups = append(currentArchive.Groups, groupName)
 	currentArchive.Files = append(currentArchive.Files, newFiles...)
@@ -674,12 +703,34 @@ func LoadArchiveGo(folder string) (int64, []string) {
 // ReadArchiveGo decompresses files from the archive using the provided prefix mapping.
 // Groups with a nil pointer value in the map are skipped entirely.
 // For included groups, the output path is: *mappedPrefix + RelativeFilePath
-func ReadArchiveGo(prefixMapping map[string]*string) int64 {
+func ReadArchiveGo(
+	prefixMapping map[string]*string,
+	callback func(filesProcessed int64, filesWritten int64, bytesWritten uint64), // being called after every processed file
+) int64 {
 	if currentArchive == nil {
 		return setErr("ReadArchive: no archive is currently open")
 	}
 
+	localWrapFiles := (int64(len(currentArchive.Files)) / Divider) + 1
+	localNextBytesStep := ByteMarker
+	var filesWritten int64 = 0
+	var filesProcessed int64 = 0
+	var bytesWritten uint64 = 0
+
 	for _, file := range currentArchive.Files {
+		// Do it this way so the last callback() function call has at least one variable that is different
+		// from the last call from here.
+		filesProcessed += 1
+		if filesProcessed%localWrapFiles == 0 {
+			if bytesWritten > localNextBytesStep {
+				localNextBytesStep = bytesWritten + ByteMarker
+			}
+			callback(filesProcessed-1, filesWritten, bytesWritten)
+		} else if bytesWritten > localNextBytesStep {
+			localNextBytesStep = bytesWritten + ByteMarker
+			callback(filesProcessed-1, filesWritten, bytesWritten)
+		}
+
 		prefix, exists := prefixMapping[file.GroupName]
 		if !exists || prefix == nil {
 			continue
@@ -691,27 +742,32 @@ func ReadArchiveGo(prefixMapping map[string]*string) int64 {
 		if retCode := BlobDecompressGo(targetPath, &position, file.FileLength); retCode != rcOK {
 			return retCode
 		}
+
+		filesWritten += 1
+		bytesWritten += file.FileLength
 	}
+
+	callback(filesProcessed, filesWritten, bytesWritten)
 
 	return rcOK
 }
 
-func CloseArchiveGo() int64 {
+func CloseArchiveGo() (int64, string) {
 	if currentArchive == nil {
-		return setErr("CloseArchive: no archive is currently open")
+		return setErr("CloseArchive: no archive is currently open"), ""
 	}
 
 	overviewPath := path.Join(currentArchive.Path, ArchiveOverviewName)
 	if err := currentArchive.StreamToFile(overviewPath); err != nil {
-		return setErr(fmt.Sprintf("CloseArchive: failed to save archive overview: %v", err))
+		return setErr(fmt.Sprintf("CloseArchive: failed to save archive overview: %v", err)), ""
 	}
-
-	if retCode := BlobCloseGo(); retCode != rcOK {
-		return retCode
+	retCode, stats := BlobCloseWithStatisticsGo()
+	if retCode != rcOK {
+		return retCode, ""
 	}
 
 	currentArchive = nil
-	return rcOK
+	return rcOK, stats
 }
 
 // -----------------------------------------------------------------------------
