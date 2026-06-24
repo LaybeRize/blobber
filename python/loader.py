@@ -117,6 +117,10 @@ def _load_lib() -> ctypes.CDLL:
     lib.LoadArchive.argtypes = [ctypes.c_char_p]
     lib.LoadArchive.restype = ctypes.c_int64
 
+    # int64_t ReadArchiveGroup(char* groupName);
+    lib.ReadArchiveGroup.argtypes = [ctypes.c_char_p]
+    lib.ReadArchiveGroup.restype = ctypes.c_int64
+
     # int64_t ReadArchive(ReadCallback keyCallback, ReadCallback valueCallback, StatCallback callback);
     lib.ReadArchive.argtypes = [ctypes.CFUNCTYPE(ctypes.c_char_p),
                                 ctypes.CFUNCTYPE(ctypes.c_char_p),
@@ -521,6 +525,18 @@ class BlobSession:
         :return: the list of group names contained in the archive
         """
         success = self._lib.LoadArchive(folder.encode(self._ENCODING))
+        if not success:
+            raise RuntimeError(self.__read_error())
+        return self.__read_array()
+
+    def read_group_files(self, group_name: str) -> list[str]:
+        """
+        Reads all files for a specific group from the currently opened archive.
+
+        :param group_name: the name of the group
+        :return: the list of file paths contained in the group of the archive
+        """
+        success = self._lib.ReadArchiveGroup(group_name.encode(self._ENCODING))
         if not success:
             raise RuntimeError(self.__read_error())
         return self.__read_array()

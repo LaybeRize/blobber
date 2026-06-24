@@ -347,6 +347,17 @@ func LoadArchive(
 	return C.int64_t(retCode)
 }
 
+//export ReadArchiveGroup
+func ReadArchiveGroup(
+	groupName *C.char, // [in]
+) C.int64_t {
+	retCode, filePaths := ReadArchiveGroupGo(C.GoString(groupName))
+	if retCode == rcOK {
+		streamingValues = &filePaths
+	}
+	return C.int64_t(retCode)
+}
+
 // ReadArchive decompresses files from the open archive according to the prefix mapping.
 // The mapping is supplied via two callbacks: keyCallback streams the group names,
 // valueCallback streams the corresponding target prefix for each group in the same order.

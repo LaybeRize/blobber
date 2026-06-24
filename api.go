@@ -10,8 +10,8 @@ import (
 	"io"
 	"io/fs"
 	"os"
-	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 )
@@ -211,7 +211,7 @@ const (
 )
 
 func LoadOverviewGo(overviewFolder string) int64 {
-	overviewPath := path.Join(overviewFolder, OverviewName)
+	overviewPath := filepath.Join(overviewFolder, OverviewName)
 	currentOverview = &RepositoryOverview{
 		RepositoryNames: make([]string, 0),
 		RepositoryPaths: make([]string, 0),
@@ -237,7 +237,7 @@ func CloseOverviewGo() int64 {
 	if currentOverview == nil {
 		return setErr("CloseOverview: can't close an overview that is not open.")
 	}
-	err := currentOverview.StreamToFile(path.Join(currentOverviewFolder, OverviewName))
+	err := currentOverview.StreamToFile(filepath.Join(currentOverviewFolder, OverviewName))
 	if err != nil {
 		return setErr(fmt.Sprintf("CloseOverview: %v", err))
 	}
@@ -588,7 +588,7 @@ func CreateArchiveGo(name string, folder string) int64 {
 		Files:       make([]ArchiveFileManifest, 0),
 	}
 
-	blobPath := path.Join(folder, ArchiveBlobName)
+	blobPath := filepath.Join(folder, ArchiveBlobName)
 	if retCode := BlobOpenGo("", blobPath, nil); retCode != rcOK {
 		currentArchive = nil
 		return setErr(fmt.Sprintf("CreateArchive: failed to open blob for writing: %v", errorMsg))
@@ -682,7 +682,7 @@ func LoadArchiveGo(folder string) (int64, []string) {
 		return setErr("LoadArchive: an archive is already open, close it first"), nil
 	}
 
-	overviewPath := path.Join(folder, ArchiveOverviewName)
+	overviewPath := filepath.Join(folder, ArchiveOverviewName)
 
 	currentArchive = &ArchiveOverview{}
 	if err := currentArchive.StreamFromFile(overviewPath); err != nil {
@@ -691,13 +691,31 @@ func LoadArchiveGo(folder string) (int64, []string) {
 			overviewPath, err)), nil
 	}
 
-	blobPath := path.Join(folder, ArchiveBlobName)
+	blobPath := filepath.Join(folder, ArchiveBlobName)
 	if retCode := BlobOpenGo(blobPath, "", nil); retCode != rcOK {
 		currentArchive = nil
 		return setErr(fmt.Sprintf("LoadArchive: failed to open blob for reading: %v", errorMsg)), nil
 	}
 
 	return rcOK, currentArchive.Groups
+}
+
+func ReadArchiveGroupGo(groupName string) (int64, []string) {
+	if currentArchive != nil {
+		return setErr("ReadArchiveGroup: no archive is open"), nil
+	}
+
+	if slices.Index(currentArchive.Groups, groupName) == -1 {
+		return setErr("ReadArchiveGroup: no group with that name in archive"), nil
+	}
+
+	relativeFilePaths := make([]string, 0)
+	for _, entry := range currentArchive.Files {
+		if entry.GroupName == groupName {
+			relativeFilePaths = append(relativeFilePaths, entry.RelativeFilePath)
+		}
+	}
+	return rcOK, relativeFilePaths
 }
 
 // ReadArchiveGo decompresses files from the archive using the provided prefix mapping.
@@ -736,7 +754,7 @@ func ReadArchiveGo(
 			continue
 		}
 
-		targetPath := path.Join(*prefix, file.RelativeFilePath)
+		targetPath := filepath.Join(*prefix, file.RelativeFilePath)
 		position := file.FilePosition
 
 		if retCode := BlobDecompressGo(targetPath, &position, file.FileLength); retCode != rcOK {
@@ -757,7 +775,7 @@ func CloseArchiveGo() (int64, string) {
 		return setErr("CloseArchive: no archive is currently open"), ""
 	}
 
-	overviewPath := path.Join(currentArchive.Path, ArchiveOverviewName)
+	overviewPath := filepath.Join(currentArchive.Path, ArchiveOverviewName)
 	if err := currentArchive.StreamToFile(overviewPath); err != nil {
 		return setErr(fmt.Sprintf("CloseArchive: failed to save archive overview: %v", err)), ""
 	}
@@ -792,7 +810,7 @@ func closeRepo() error {
 }
 
 func getRepoPath() string {
-	return path.Join(currentOverviewFolder,
+	return filepath.Join(currentOverviewFolder,
 		*currentOverview.GetPath(currentRepo.RepositoryName)) +
 		RepositorySuffix
 }
@@ -809,7 +827,7 @@ func getVersionPath() string {
 }
 
 func getVersionPathFrom(versionName string) string {
-	return path.Join(currentOverviewFolder,
+	return filepath.Join(currentOverviewFolder,
 		*currentOverview.GetPath(currentRepo.RepositoryName)) +
 		"_" +
 		*currentRepo.GetPath(versionName) +
@@ -817,7 +835,7 @@ func getVersionPathFrom(versionName string) string {
 }
 
 func getVersionBlob() string {
-	return path.Join(currentOverviewFolder,
+	return filepath.Join(currentOverviewFolder,
 		*currentOverview.GetPath(currentRepo.RepositoryName)) +
 		"_" +
 		*currentRepo.GetPath(currentVersion.VersionName) +
@@ -825,7 +843,7 @@ func getVersionBlob() string {
 }
 
 func getVersionBlobWithBlobName(blobName string) string {
-	return path.Join(currentOverviewFolder,
+	return filepath.Join(currentOverviewFolder,
 		*currentOverview.GetPath(currentRepo.RepositoryName)) +
 		"_" +
 		blobName +
