@@ -2,6 +2,8 @@
 build
 python/data
 python/data_old
+python/data_target
+python/archive_folder
 python/data2
 python/versioning
 python/blob.blob

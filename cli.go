@@ -552,13 +552,15 @@ func cmdArchive(args []string) {
 	switch sub {
 	case "load":
 		// blobber archive <folder> load  — prints the group list
-		retCode, groups := LoadArchiveGo(folder)
+		retCode, groups, name := LoadArchiveGo(folder)
 		if retCode != rcOK {
 			fatalf("load archive: %s\n", errorMsg)
 		}
-		if CloseArchiveGo() != rcOK {
+		if retCode, _ = CloseArchiveGo(); retCode != rcOK {
 			fatalf("close archive: %s\n", errorMsg)
 		}
+		fmt.Println("Archive Name: ", name)
+		fmt.Println("Groups:")
 		if len(groups) == 0 {
 			fmt.Println("(no groups)")
 		} else {
@@ -569,17 +571,17 @@ func cmdArchive(args []string) {
 
 	case "extract":
 		// blobber archive <folder> extract [--skip <group>]... [--map <group>=<prefix>]...
-		retCode, groups := LoadArchiveGo(folder)
+		retCode, groups, _ := LoadArchiveGo(folder)
 		if retCode != rcOK {
 			fatalf("load archive for extraction: %s\n", errorMsg)
 		}
 
 		mapping := buildPrefixMapping(groups, rest)
 
-		if ReadArchiveGo(mapping) != rcOK {
+		if ReadArchiveGo(mapping, func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {}) != rcOK {
 			fatalf("extract archive: %s\n", errorMsg)
 		}
-		if CloseArchiveGo() != rcOK {
+		if retCode, _ = CloseArchiveGo(); retCode != rcOK {
 			fatalf("close archive: %s\n", errorMsg)
 		}
 		fmt.Println("Extraction complete.")
@@ -630,7 +632,7 @@ func cmdArchiveSession(args []string) {
 
 		case "exit", "quit":
 			if currentArchive != nil {
-				if CloseArchiveGo() != rcOK {
+				if retCode, _ := CloseArchiveGo(); retCode != rcOK {
 					fmt.Fprintf(os.Stderr, "warning: close archive: %s\n", errorMsg)
 				} else {
 					fmt.Println("Archive saved.")
@@ -664,12 +666,12 @@ func cmdArchiveSession(args []string) {
 				sessionErr("an archive is already open — close it first with 'close'")
 				continue
 			}
-			retCode, groups := LoadArchiveGo(folder)
+			retCode, groups, name := LoadArchiveGo(folder)
 			if retCode != rcOK {
 				sessionErr(errorMsg)
 				continue
 			}
-			fmt.Printf(" Archive %q loaded (%d group(s)).\n", currentArchive.ArchiveName, len(groups))
+			fmt.Printf(" Archive %q loaded (%d group(s)).\n", name, len(groups))
 			if len(groups) > 0 {
 				for _, g := range groups {
 					fmt.Println("  •", g)
@@ -710,7 +712,7 @@ func cmdArchiveSession(args []string) {
 				sessionErr("no archive is currently open")
 				continue
 			}
-			if CloseArchiveGo() != rcOK {
+			if retCode, _ := CloseArchiveGo(); retCode != rcOK {
 				sessionErr(errorMsg)
 				continue
 			}
@@ -727,7 +729,7 @@ func cmdArchiveSession(args []string) {
 				continue
 			}
 			mapping := buildPrefixMapping(currentArchive.Groups, parts[1:])
-			if ReadArchiveGo(mapping) != rcOK {
+			if ReadArchiveGo(mapping, func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {}) != rcOK {
 				sessionErr(errorMsg)
 				continue
 			}
@@ -753,7 +755,7 @@ func cmdArchiveSession(args []string) {
 
 	// Ctrl-D: save cleanly if still open
 	if currentArchive != nil {
-		if CloseArchiveGo() != rcOK {
+		if retCode, _ := CloseArchiveGo(); retCode != rcOK {
 			fmt.Fprintf(os.Stderr, "warning: close archive: %s\n", errorMsg)
 		}
 	}
@@ -801,7 +803,9 @@ func sessionArchiveAddGroup(args []string) {
 		return
 	}
 
-	if AddNewGroupGo(groupName, pathPrefix, files) != rcOK {
+	if AddNewGroupGo(groupName, pathPrefix, files,
+		func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {},
+	) != rcOK {
 		sessionErr(errorMsg)
 		return
 	}

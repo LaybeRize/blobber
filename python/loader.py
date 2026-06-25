@@ -113,8 +113,8 @@ def _load_lib() -> ctypes.CDLL:
                                 ctypes.CFUNCTYPE(None, ctypes.c_int64, ctypes.c_int64, ctypes.c_uint64)]
     lib.AddNewGroup.restype = ctypes.c_int64
 
-    # int64_t LoadArchive(char* folder);
-    lib.LoadArchive.argtypes = [ctypes.c_char_p]
+    # int64_t LoadArchive(char* folder, archiveName **C.char);
+    lib.LoadArchive.argtypes = [ctypes.c_char_p, ctypes.POINTER(ctypes.c_char_p)]
     lib.LoadArchive.restype = ctypes.c_int64
 
     # int64_t ReadArchiveGroup(char* groupName);
@@ -498,7 +498,7 @@ class BlobSession:
         if not success:
             raise RuntimeError(self.__read_error())
 
-    def add_group_to_archive(self, group_name: str, path_prefix: str, paths: list[str]):
+    def add_group_to_archive(self, group_name: str, path_prefix: str, glob_path: str):
         """
         Compresses the given paths into the open archive blob under the given group name,
         stripping path_prefix from each path to form the stored relative path.
@@ -506,10 +506,10 @@ class BlobSession:
 
         :param group_name: the name of the group to add
         :param path_prefix: the prefix to strip from each path when storing
-        :param paths: the list of file paths to compress into the group
+        :param glob_path: the glob command for paths to compress into the group
         """
         cb_statistics = self.get_stat_func()
-        self.__write_array(paths)
+        self.__write_array([path for path in glob.glob(glob_path, recursive=True, include_hidden=True)])
         success = self._lib.AddNewGroup(group_name.encode(self._ENCODING),
                                         path_prefix.encode(self._ENCODING),
                                         cb_statistics)
@@ -517,19 +517,21 @@ class BlobSession:
         if not success:
             raise RuntimeError(self.__read_error())
 
-    def load_archive(self, folder: str) -> list[str]:
+    def load_archive(self, folder: str) -> tuple[list[str], str]:
         """
         Loads an existing archive from the given folder, opening the blob for reading.
 
         :param folder: the path to the folder containing the archive
-        :return: the list of group names contained in the archive
+        :return: the list of group names contained in the archive and the archive name
         """
-        success = self._lib.LoadArchive(folder.encode(self._ENCODING))
+        name_ptr = ctypes.c_char_p(None)
+
+        success = self._lib.LoadArchive(folder.encode(self._ENCODING), ctypes.byref(name_ptr))
         if not success:
             raise RuntimeError(self.__read_error())
-        return self.__read_array()
+        return self.__read_array(), name_ptr.value.decode(self._ENCODING)
 
-    def read_group_files(self, group_name: str) -> list[str]:
+    def read_archive_group_files(self, group_name: str) -> list[str]:
         """
         Reads all files for a specific group from the currently opened archive.
 

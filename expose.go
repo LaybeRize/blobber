@@ -339,10 +339,12 @@ func AddNewGroup(
 //export LoadArchive
 func LoadArchive(
 	folder *C.char, // [in]
+	archiveName **C.char, // [out] Do not preallocate
 ) C.int64_t {
-	retCode, groups := LoadArchiveGo(C.GoString(folder))
+	retCode, groups, name := LoadArchiveGo(C.GoString(folder))
 	if retCode == rcOK {
 		streamingValues = &groups
+		writeDoublePointer(archiveName, &generalTextBuffer[0], name)
 	}
 	return C.int64_t(retCode)
 }

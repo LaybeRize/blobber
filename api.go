@@ -643,7 +643,7 @@ func AddNewGroupGo(
 		relativePath := strings.TrimPrefix(filePath, pathPrefix)
 
 		var fileLength uint64
-		var filePosition = currentWriteFile.position
+		var filePosition uint64
 		var fileLastModifiedNs int64
 		var fileChanged int64
 
@@ -663,8 +663,6 @@ func AddNewGroupGo(
 			FilePosition:     filePosition,
 		})
 
-		currentWriteFile.position += fileLength
-
 		filesWritten += 1
 		bytesWritten += fileLength
 	}
@@ -677,9 +675,9 @@ func AddNewGroupGo(
 	return rcOK
 }
 
-func LoadArchiveGo(folder string) (int64, []string) {
+func LoadArchiveGo(folder string) (int64, []string, string) {
 	if currentArchive != nil {
-		return setErr("LoadArchive: an archive is already open, close it first"), nil
+		return setErr("LoadArchive: an archive is already open, close it first"), nil, ""
 	}
 
 	overviewPath := filepath.Join(folder, ArchiveOverviewName)
@@ -688,20 +686,20 @@ func LoadArchiveGo(folder string) (int64, []string) {
 	if err := currentArchive.StreamFromFile(overviewPath); err != nil {
 		currentArchive = nil
 		return setErr(fmt.Sprintf("LoadArchive: failed to load archive overview from '%s': %v",
-			overviewPath, err)), nil
+			overviewPath, err)), nil, ""
 	}
 
 	blobPath := filepath.Join(folder, ArchiveBlobName)
 	if retCode := BlobOpenGo(blobPath, "", nil); retCode != rcOK {
 		currentArchive = nil
-		return setErr(fmt.Sprintf("LoadArchive: failed to open blob for reading: %v", errorMsg)), nil
+		return setErr(fmt.Sprintf("LoadArchive: failed to open blob for reading: %v", errorMsg)), nil, ""
 	}
 
-	return rcOK, currentArchive.Groups
+	return rcOK, currentArchive.Groups, currentArchive.ArchiveName
 }
 
 func ReadArchiveGroupGo(groupName string) (int64, []string) {
-	if currentArchive != nil {
+	if currentArchive == nil {
 		return setErr("ReadArchiveGroup: no archive is open"), nil
 	}
 

@@ -9,6 +9,7 @@ from data_generator import generate_random_files, tree_compare_same
 def main():
     test_raw_functions()
     test_version_functions()
+    test_archive_functions()
 
 
 def test_raw_functions():
@@ -163,6 +164,81 @@ def test_version_functions():
         exit(-1)
 
     print("--- Versioning test was successful ---")
+
+
+def test_archive_functions():
+    archive_dir = f"{Path(__file__).parent}{os.sep}archive_folder"
+    data_dir = f"{Path(__file__).parent}{os.sep}data"
+    target_dir = data_dir + "_target"
+    sub_dir_one = f"{os.sep}test1"
+    sub_dir_two = f"{os.sep}test2"
+    shutil.rmtree(archive_dir, ignore_errors=True)
+    shutil.rmtree(data_dir, ignore_errors=True)
+    shutil.rmtree(target_dir, ignore_errors=True)
+    print("--- Creating Data Tree ---")
+    file_amt = 10
+    generate_random_files(
+        base_folder=data_dir+sub_dir_one,
+        file_sizes=[
+            64 * 1024,         # 64 KiB
+            5 * 1024 * 1024,   #  5 MiB
+            19 * 1024 * 1024,  # 19 MiB
+            50 * 1024 * 1024,  # 50 MiB
+        ],
+        num_files=file_amt,
+    )
+    generate_random_files(
+        base_folder=data_dir+sub_dir_two,
+        file_sizes=[
+            64 * 1024,         # 64 KiB
+            5 * 1024 * 1024,   #  5 MiB
+            19 * 1024 * 1024,  # 19 MiB
+            50 * 1024 * 1024,  # 50 MiB
+        ],
+        num_files=file_amt,
+    )
+    print("--- Testing Archive Creation ---")
+    session = BlobSession()
+    session.create_archive("Test Archive", archive_dir)
+    session.add_group_to_archive("Group 1", data_dir+sub_dir_one, data_dir+sub_dir_one + f"{os.sep}**")
+    session.add_group_to_archive("Group 2", data_dir+sub_dir_two, data_dir+sub_dir_two + f"{os.sep}**")
+    session.close_archive()
+    if not os.path.exists(archive_dir + f"{os.sep}archive.overview"):
+        print("+++ Failed to locate the appropriate overview file expected +++")
+        exit(-1)
+    if not os.path.exists(archive_dir + f"{os.sep}archive.blob"):
+        print("+++ Failed to locate the appropriate blob file expected +++")
+        exit(-1)
+
+    print("--- Testing Archive Restoration ---")
+    groups, name = session.load_archive(archive_dir)
+    if groups != ["Group 1", "Group 2"]:
+        print("+++ Unexpected list of groups +++")
+        exit(-1)
+    if name != "Test Archive":
+        print("+++ Unexpected name for Archive +++")
+        exit(-1)
+
+    file_list = session.read_archive_group_files("Group 1")
+    for file_name in file_list:
+        if not os.path.exists(os.path.join(data_dir+sub_dir_one, file_name.removeprefix(os.sep))):
+            print(os.path.join(data_dir+sub_dir_one, file_name.removeprefix(os.sep)))
+            print("+++ Unexpected file in Group Archive list +++")
+            exit(-1)
+    session.read_archive({"Group 1": target_dir+sub_dir_two, "Group 2": target_dir+sub_dir_one})
+    session.close_archive()
+
+    print("--- Comparing restored Archive Data ---")
+
+    if not tree_compare_same(data_dir+sub_dir_one, target_dir+sub_dir_two):
+        print("+++ Failed to verify that data from 'Group 1' was correctly reproduced +++")
+        exit(-1)
+
+    if not tree_compare_same(data_dir+sub_dir_two, target_dir+sub_dir_one):
+        print("+++ Failed to verify that data from 'Group 2' was correctly reproduced +++")
+        exit(-1)
+
+    print("--- Archive test was successful ---")
 
 
 if __name__ == '__main__':
