@@ -54,9 +54,10 @@ func (r *VersionManifest) GetFileMap() map[string]*FileManifest {
 }
 
 type RepositoryManifest struct {
-	RepositoryName string   `json:"repositoryName"`
-	VersionNames   []string `json:"versionNames"`
-	VersionPaths   []string `json:"versionPaths"`
+	RepositoryName   string              `json:"repositoryName"`
+	VersionNames     []string            `json:"versionNames"`
+	VersionPaths     []string            `json:"versionPaths"`
+	BlobToVersionMap map[string][]string `json:"blobToVersionMap"`
 }
 
 func (r *RepositoryManifest) RegisterVersion(name string, path string) {

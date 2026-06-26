@@ -206,6 +206,13 @@ func GetVersionInfo(
 ) C.int64_t {
 	retCode, versionInfoString := GetVersionInfoGo()
 	writeDoublePointer(versionInfo, &generalTextBuffer[0], versionInfoString)
+	if retCode == rcOK {
+		tempArray := make([]string, len(currentVersion.Files))
+		for i, file := range currentVersion.Files {
+			tempArray[i] = file.FilePath
+		}
+		streamingValues = &tempArray
+	}
 	return C.int64_t(retCode)
 }
 
@@ -220,54 +227,11 @@ func WriteToVersion(
 	callback C.StatCallback, // [in]
 	compressionRate **C.char, // [out] If pre-allocated at least 10-byte
 ) C.int64_t {
-
-	if retCode := StartWriteToVersionGo((*int64)(unsafe.Pointer(compression))); retCode != rcOK {
-		return C.int64_t(retCode)
-	}
-
-	internalCallback := func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {
-		C.stat_callback(callback, C.int64_t(filesProcessed), C.int64_t(filesWritten), C.uint64_t(bytesWritten))
-	}
-
-	localWrapFiles := (int64(len(*streamingValues)) / Divider) + 1
-	localNextBytesStep := ByteMarker
-	var filePosition uint64 = 0
-	var pathsProcessed int64 = 0
-	var pathsSaved int64 = 0
-	var bytesProcessed uint64 = 0
-
-	for _, value := range *streamingValues {
-		pathsProcessed += 1
-		if pathsProcessed%localWrapFiles == 0 {
-			if bytesProcessed > localNextBytesStep {
-				localNextBytesStep = bytesProcessed + ByteMarker
-			}
-			internalCallback(pathsProcessed-1, pathsSaved, bytesProcessed)
-		} else if bytesProcessed > localNextBytesStep {
-			localNextBytesStep = bytesProcessed + ByteMarker
-			internalCallback(pathsProcessed-1, pathsSaved, bytesProcessed)
-		}
-
-		retCode, saved := TryWritingToVersionGo(value, &filePosition, &bytesProcessed)
-		if retCode != rcOK {
-			return C.int64_t(retCode)
-		}
-		if saved {
-			pathsSaved += 1
-		}
-	}
-
-	internalCallback(pathsProcessed, pathsSaved, bytesProcessed)
-
-	retCode, statistics := StopWriteToVersionGo()
+	retCode, statistics := WriteToVersionGo((*int64)(unsafe.Pointer(compression)),
+		func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {
+			C.stat_callback(callback, C.int64_t(filesProcessed), C.int64_t(filesWritten), C.uint64_t(bytesWritten))
+		}, *streamingValues)
 	writeDoublePointer(compressionRate, &statisticsBuffer[0], statistics)
-	if retCode == rcOK {
-		tempArray := make([]string, len(currentVersion.Files))
-		for i, file := range currentVersion.Files {
-			tempArray[i] = file.FilePath
-		}
-		streamingValues = &tempArray
-	}
 	return C.int64_t(retCode)
 }
 

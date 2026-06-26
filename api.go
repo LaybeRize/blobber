@@ -1,5 +1,6 @@
 package main
 
+import "C"
 import (
 	"crypto/sha256"
 	"encoding/base64"
@@ -279,9 +280,10 @@ func RegisterNewRepositoryGo(repoName string) int64 {
 	repoPath := timestampBase64()
 	currentOverview.RegisterRepository(repoName, repoPath)
 	currentRepo = &RepositoryManifest{
-		RepositoryName: repoName,
-		VersionNames:   make([]string, 0),
-		VersionPaths:   make([]string, 0),
+		RepositoryName:   repoName,
+		VersionNames:     make([]string, 0),
+		VersionPaths:     make([]string, 0),
+		BlobToVersionMap: make(map[string][]string),
 	}
 	currentVersion = nil
 	previousVersion = nil
@@ -406,72 +408,87 @@ func GetVersionInfoGo() (int64, string) {
 		len(currentVersion.Files))
 }
 
-func StartWriteToVersionGo(compression *int64) int64 {
+func WriteToVersionGo(compression *int64,
+	internalCallback func(filesProcessed int64, filesWritten int64, bytesWritten uint64),
+	paths []string,
+) (int64, string) {
 	if currentVersion == nil {
-		return setErr("StartWriteToVersion: can't write to a version that isn't opened")
+		return setErr("StartWriteToVersion: can't write to a version that isn't opened"), ""
 	}
 	if len(currentVersion.Files) != 0 {
-		return setErr("StartWriteToVersion: can only start writing if the version isn't already created")
+		return setErr("StartWriteToVersion: can only start writing if the version isn't already created"), ""
 	}
-	return BlobOpenGo("", getVersionBlob(), compression)
-}
-
-func TryWritingToVersionGo(path string, position *uint64, bytesProcessed *uint64) (int64, bool) {
-	if currentWriteFile == nil || currentVersion == nil {
-		return setErr("TryWritingToVersion: failed to write to an unopened version or blob"), false
+	if retCode := BlobOpenGo("", getVersionBlob(), compression); retCode != rcOK {
+		return retCode, ""
 	}
 
-	var fileLength uint64
-	//In case the file is skipped keep the position the same
-	filePosition := *position
-	var fileLastModifiedNs int64
-	var prevHash *string = nil
-	var fileChanged int64
-	var blobPath = currentVersion.BlobPath
+	localWrapFiles := (int64(len(paths)) / Divider) + 1
+	localNextBytesStep := ByteMarker
+	var filePosition uint64 = 0
+	var pathsProcessed int64 = 0
+	var pathsSaved int64 = 0
+	var bytesProcessed uint64 = 0
 
-	if val := previousFilesMap[path]; val != nil {
-		fileLength, filePosition, fileLastModifiedNs = val.FileLength, val.FilePosition, val.FileTS
-		prevHashString := val.FileHash
-		prevHash = &prevHashString
-		blobPath = val.BlobPath
+	for _, path := range paths {
+		pathsProcessed += 1
+		if pathsProcessed%localWrapFiles == 0 {
+			if bytesProcessed > localNextBytesStep {
+				localNextBytesStep = bytesProcessed + ByteMarker
+			}
+			internalCallback(pathsProcessed-1, pathsSaved, bytesProcessed)
+		} else if bytesProcessed > localNextBytesStep {
+			localNextBytesStep = bytesProcessed + ByteMarker
+			internalCallback(pathsProcessed-1, pathsSaved, bytesProcessed)
+		}
+
+		var fileLength uint64
+		var fileLastModifiedNs int64
+		var prevHash *string = nil
+		var fileChanged int64
+		var blobPath = currentVersion.BlobPath
+
+		if val := previousFilesMap[path]; val != nil {
+			fileLength, filePosition, fileLastModifiedNs = val.FileLength, val.FilePosition, val.FileTS
+			prevHashString := val.FileHash
+			prevHash = &prevHashString
+			blobPath = val.BlobPath
+		}
+
+		retCode, newHash := BlobCompressGo(path, &fileLength, &filePosition, &fileLastModifiedNs, prevHash, &fileChanged)
+		if retCode != rcOK {
+			return retCode, ""
+		}
+
+		if fileChanged == FileUnchanged {
+			currentVersion.Files = append(currentVersion.Files, FileManifest{
+				FilePath:     path,
+				FileLength:   fileLength,
+				FilePosition: filePosition,
+				FileHash:     newHash,
+				FileTS:       fileLastModifiedNs,
+				BlobPath:     blobPath,
+			})
+		} else if fileChanged == FileChanged {
+			currentVersion.Files = append(currentVersion.Files, FileManifest{
+				FilePath:     path,
+				FileLength:   fileLength,
+				FilePosition: filePosition,
+				FileHash:     newHash,
+				FileTS:       fileLastModifiedNs,
+				BlobPath:     currentVersion.BlobPath,
+			})
+			// Only update position, when the file is actually written to the blob
+			bytesProcessed = filePosition + fileLength
+		}
+
+		if fileChanged == FileChanged {
+			pathsSaved += 1
+		}
 	}
 
-	retCode, newHash := BlobCompressGo(path, &fileLength, &filePosition, &fileLastModifiedNs, prevHash, &fileChanged)
-	if retCode != rcOK {
-		return retCode, false
-	}
-
-	if fileChanged == FileUnchanged {
-		currentVersion.Files = append(currentVersion.Files, FileManifest{
-			FilePath:     path,
-			FileLength:   fileLength,
-			FilePosition: filePosition,
-			FileHash:     newHash,
-			FileTS:       fileLastModifiedNs,
-			BlobPath:     blobPath,
-		})
-	} else if fileChanged == FileChanged {
-		currentVersion.Files = append(currentVersion.Files, FileManifest{
-			FilePath:     path,
-			FileLength:   fileLength,
-			FilePosition: filePosition,
-			FileHash:     newHash,
-			FileTS:       fileLastModifiedNs,
-			BlobPath:     currentVersion.BlobPath,
-		})
-		// Only update position, when the file is actually written to the blob
-		*position = filePosition
-		*bytesProcessed = filePosition + fileLength
-	}
-
-	return rcOK, fileChanged == FileChanged
-}
-
-func StopWriteToVersionGo() (int64, string) {
-	if currentVersion == nil {
-		return setErr("StopWriteToVersion: can't stop writing to a version that isn't opened"), ""
-	}
+	internalCallback(pathsProcessed, pathsSaved, bytesProcessed)
 	currentVersion.SortFiles()
+
 	return BlobCloseWithStatisticsGo()
 }
 

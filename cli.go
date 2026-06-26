@@ -438,36 +438,14 @@ func sessionWrite(args []string) {
 		return
 	}
 
-	if StartWriteToVersionGo(level) != rcOK {
-		sessionErr(errorMsg)
-		return
-	}
-
-	var pos uint64
-	var bytesProcessed uint64
-	var totalFiles, savedFiles int64
-
-	for _, f := range files {
-		code, saved := TryWritingToVersionGo(f, &pos, &bytesProcessed)
-		if code != rcOK {
-			// StopWriteToVersionGo still needs to run to close the blob
-			StopWriteToVersionGo()
-			sessionErr(errorMsg)
-			return
-		}
-		totalFiles++
-		if saved {
-			savedFiles++
-		}
-		printProgress(totalFiles, savedFiles, bytesProcessed)
-	}
-
-	code, stat := StopWriteToVersionGo()
+	code, stat := WriteToVersionGo(level, func(filesProcessed int64, filesWritten int64, bytesWritten uint64) {
+		printProgress(filesProcessed, filesWritten, bytesWritten)
+	}, files)
 	if code != rcOK {
 		sessionErr(errorMsg)
 		return
 	}
-	fmt.Printf("\n  Written %d/%d file(s). Compression ratio: %s\n", savedFiles, totalFiles, stat)
+	fmt.Printf("\n  Versioned %d file(s). Compression ratio: %s\n", len(currentVersion.Files), stat)
 }
 
 // sessionRead handles: read|estimate [--overwrite] [--from-file <file>] <pattern>...
@@ -633,7 +611,7 @@ func cmdArchiveSession(args []string) {
 		case "exit", "quit":
 			if currentArchive != nil {
 				if retCode, _ := CloseArchiveGo(); retCode != rcOK {
-					fmt.Fprintf(os.Stderr, "warning: close archive: %s\n", errorMsg)
+					_, _ = fmt.Fprintf(os.Stderr, "warning: close archive: %s\n", errorMsg)
 				} else {
 					fmt.Println("Archive saved.")
 				}
@@ -756,7 +734,7 @@ func cmdArchiveSession(args []string) {
 	// Ctrl-D: save cleanly if still open
 	if currentArchive != nil {
 		if retCode, _ := CloseArchiveGo(); retCode != rcOK {
-			fmt.Fprintf(os.Stderr, "warning: close archive: %s\n", errorMsg)
+			_, _ = fmt.Fprintf(os.Stderr, "warning: close archive: %s\n", errorMsg)
 		}
 	}
 	fmt.Println("\nSession saved.")
@@ -959,7 +937,7 @@ func openOverview(dir string) {
 
 func closeOverview() {
 	if CloseOverviewGo() != rcOK {
-		fmt.Fprintf(os.Stderr, "warning: close overview: %s\n", errorMsg)
+		_, _ = fmt.Fprintf(os.Stderr, "warning: close overview: %s\n", errorMsg)
 	}
 }
 
@@ -1044,12 +1022,12 @@ func dieOnErr(err error) {
 }
 
 func fatalf(format string, a ...any) {
-	fmt.Fprintf(os.Stderr, "error: "+format, a...)
+	_, _ = fmt.Fprintf(os.Stderr, "error: "+format, a...)
 	os.Exit(1)
 }
 
 func sessionErr(msg string) {
-	fmt.Fprintf(os.Stderr, "  error: %s\n", msg)
+	_, _ = fmt.Fprintf(os.Stderr, "  error: %s\n", msg)
 }
 
 // -----------------------------------------------------------------------------

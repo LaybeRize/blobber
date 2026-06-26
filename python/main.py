@@ -90,7 +90,8 @@ def test_version_functions():
     #
     print("--- Creating first Version ---")
     #
-    files = session.create_new_version("version1", [data_dir + f"{os.sep}**"])
+    session.create_new_version("version1", [data_dir + f"{os.sep}**"])
+    _, files = session.get_version_info()
     if len(files) != file_amt:
         print("+++ Not all files were properly saved to the version 1 +++")
         exit(-1)
@@ -107,7 +108,8 @@ def test_version_functions():
     session.open_overview(ver_dir)
     session.load_repo("test_repo")
     session.load_version("version1")
-    print(session.get_version_info())
+    stats, _ = session.get_version_info()
+    print(stats)
 
     files = session.estimate_files_read(False, [])
     if len(files) != 0:
@@ -141,7 +143,8 @@ def test_version_functions():
 
     print("--- Creating version 2 ---")
 
-    files = session.new_version_from_old("version2","version1", [data_dir + f"{os.sep}**"])
+    session.new_version_from_old("version2","version1", [data_dir + f"{os.sep}**"])
+    _, files = session.get_version_info()
     if len(files) != file_amt:
         print("+++ Did not capture all files in version 2 +++")
         exit(-1)

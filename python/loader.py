@@ -165,7 +165,8 @@ def _get_lib() -> ctypes.CDLL:
     return _LIB
 
 class BlobSession:
-    def __init__(self, message_amount: int = 20, bytes_to_read_until_next_message: int = 128 * 1024 * 1024):
+    def __init__(self, message_amount: int = 20, bytes_to_read_until_next_message: int = 128 * 1024 * 1024,
+                 raise_error: bool = True):
         self._lib  = _get_lib()
         self._ENCODING = "UTF-8"
         self._MESSAGE_AMOUNT = message_amount
@@ -180,10 +181,23 @@ class BlobSession:
             "VERY HIGH": 12,
         }
         self.__STANDARD_COMPRESSION = self.__compression_mapping["MIDDLE"]
+        self.__raise_error = raise_error
+        self.error_message = ""
+        self.error = False
+
+    def __error(self, error_text: str):
+        if self.__raise_error:
+            raise RuntimeError(error_text)
+        self.error_message = error_text
+        self.error = True
 
     def set_standard_compression_level(self, map_string: str) -> BlobSession:
+        if self.error:
+            return self
+
         if map_string not in self.__compression_mapping:
-            raise RuntimeError(f"Compression level '{map_string}' not supported.")
+            self.__error(f"Compression level '{map_string}' not supported.")
+            return self
         self.__STANDARD_COMPRESSION = self.__compression_mapping[map_string]
         return self
 
@@ -196,12 +210,15 @@ class BlobSession:
         :param path: the path of the blob file
         :param compression_level: the zstd compression level that should be used
         """
+        if self.error:
+            return
+
         if compression_level is None:
             compression_level = self.__STANDARD_COMPRESSION
         comp_level_val = ctypes.c_int64(compression_level)
         success = self._lib.BlobOpen(None, path.encode(self._ENCODING), ctypes.byref(comp_level_val))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
 
     def open_for_reading(self, path: str):
         """
@@ -209,9 +226,12 @@ class BlobSession:
 
         :param path: the path of the blob file
         """
+        if self.error:
+            return
+
         success = self._lib.BlobOpen(path.encode(self._ENCODING), None, None)
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
 
     def read_file_to_blob(self, path: str,
                           file_length: int = 0,
@@ -230,6 +250,9 @@ class BlobSession:
         :param hash_string: the hash string to compare to, set to None if no version to compare to
         :return: fileChanged (or None if file was ignored), fileLength, filePosition, fileEditedTS, fileHash
         """
+        if self.error:
+            return None, 0, 0, 0, ""
+
         file_length_c = ctypes.c_uint64(file_length)
         file_position_c = ctypes.c_uint64(file_position)
         file_ts_c = ctypes.c_int64(file_ts)
@@ -244,7 +267,8 @@ class BlobSession:
                                          ctypes.byref(hash_ptr),
                                          ctypes.byref(file_changed))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return None, 0, 0, 0, ""
 
         return (None if file_changed.value == -1 else bool(file_changed.value),
                 file_length_c.value, file_position_c.value, file_ts_c.value,
@@ -262,13 +286,17 @@ class BlobSession:
         :param file_position: the position in the blob where the file resides
         :return: the new position where the blob pointer is
         """
+        if self.error:
+            return 0
+
         file_position_c = ctypes.c_uint64(file_position)
 
         success = self._lib.BlobDecompress(path.encode(self._ENCODING),
                                            ctypes.byref(file_position_c),
                                            ctypes.c_uint64(file_length))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return 0
 
         return file_position_c.value
 
@@ -277,19 +305,26 @@ class BlobSession:
         """
         Closes the opened blob file, if there is an error the function throws it.
         """
+        if self.error:
+            return
+
         success = self._lib.BlobClose()
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
 
     def close_blob_file_with_stats(self) -> str:
         """
         Closes the opened blob file, if there is an error the function throws it.
         """
+        if self.error:
+            return ""
+
         statistics_ptr = ctypes.c_char_p(None)
 
         success = self._lib.BlobCloseWithStatistics(ctypes.byref(statistics_ptr))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return ""
 
         return statistics_ptr.value.decode(self._ENCODING)
 
@@ -302,18 +337,26 @@ class BlobSession:
         :param overview_path: the path to the folder with the overview
         :return: the list of repo names in the overview
         """
+        if self.error:
+            return []
+
         success = self._lib.LoadOverview(overview_path.encode(self._ENCODING))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return []
+
         return self.__read_array()
 
     def close_overview(self):
         """
         Closes the general overview and all underlying still opened repos and versions.
         """
+        if self.error:
+            return
+
         success = self._lib.CloseOverview()
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
 
     def new_repo(self, repo_name: str) -> list[str]:
         """
@@ -323,9 +366,13 @@ class BlobSession:
         :param repo_name: the name of the repository
         :return: the list of versions contained in the repository
         """
+        if self.error:
+            return []
+
         success = self._lib.RegisterNewRepository(repo_name.encode(self._ENCODING))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+
         return []
 
     def load_repo(self, repo_name: str) -> list[str]:
@@ -336,12 +383,17 @@ class BlobSession:
         :param repo_name: the name of the repository
         :return: the list of versions contained in the repository
         """
+        if self.error:
+            return []
+
         success = self._lib.LoadRepository(repo_name.encode(self._ENCODING))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return []
+
         return self.__read_array()
 
-    def create_new_version(self, version_name, glob_commands: list[str]) -> list[str]:
+    def create_new_version(self, version_name, glob_commands: list[str]):
         """
         Tries to create a version with the given name and glob commands.
         Will raise an exception if the name is already taken.
@@ -350,15 +402,20 @@ class BlobSession:
         :param glob_commands: the glob paths to find the files with
         :return: the list of actual files in the version
         """
+        if self.error:
+            return
+
         self.__new_version(version_name)
-        statistics, files = self.__write_to_version(glob_commands)
+        statistics = self.__write_to_version(glob_commands)
+        if self.error:
+            return
+
         print(f"Compressed files to {statistics} of size.")
-        return files
 
     def new_version_from_old(self,
                              version_name: str,
                              old_version_name: str,
-                             glob_commands: list[str]) -> list[str]:
+                             glob_commands: list[str]):
         """
         Tries to create a version with the given name and glob commands comparing the file changes against the
         specified older version.
@@ -369,11 +426,16 @@ class BlobSession:
         :param glob_commands: the glob paths to find the files with
         :return: the list of actual files in the version
         """
+        if self.error:
+            return
+
         self.__new_version(version_name)
         self.__set_previous_version(old_version_name)
-        statistics, files = self.__write_to_version(glob_commands)
+        statistics = self.__write_to_version(glob_commands)
+        if self.error:
+            return
+
         print(f"Compressed files to {statistics} of size.")
-        return files
 
     def __new_version(self, version_name: str):
         """
@@ -381,9 +443,12 @@ class BlobSession:
 
         :param version_name: the name of the new version
         """
+        if self.error:
+            return
+
         success = self._lib.RegisterNewVersion(version_name.encode(self._ENCODING))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
 
     def load_version(self, version_name: str) -> list[str]:
         """
@@ -391,9 +456,14 @@ class BlobSession:
 
         :param version_name: the name of the version to load
         """
+        if self.error:
+            return []
+
         success = self._lib.LoadVersion(version_name.encode(self._ENCODING))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return []
+
         return self.__read_array()
 
     def __set_previous_version(self, version_name: str):
@@ -402,18 +472,26 @@ class BlobSession:
 
         :param version_name: the previous version name to set
         """
+        if self.error:
+            return
+
         success = self._lib.LoadAndSetPreviousVersion(version_name.encode(self._ENCODING))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
 
-    def get_version_info(self) -> str:
+    def get_version_info(self) -> tuple[str, list[str]]:
+        if self.error:
+            return "", []
+
         version_info_ptr = ctypes.c_char_p(None)
         success = self._lib.GetVersionInfo(ctypes.byref(version_info_ptr))
         if not success:
-            raise RuntimeError(self.__read_error())
-        return version_info_ptr.value.decode(self._ENCODING)
+            self.__error(self.__read_error())
+            return "", []
 
-    def __write_to_version(self, glob_commands: list[str], compression_level: int | None = None) -> tuple[str, list[str]]:
+        return version_info_ptr.value.decode(self._ENCODING), self.__read_array()
+
+    def __write_to_version(self, glob_commands: list[str], compression_level: int | None = None) -> str:
         """
         Writes all files specified by the glob commands to the current version.
         The function will print periodic information about its progress.
@@ -422,6 +500,9 @@ class BlobSession:
         :param compression_level: the desired compression level for the resulting blob
         :return: a tuple containing the compression rate (str) and list of files in the version (list[str])
         """
+        if self.error:
+            return ""
+
         if compression_level is None:
             compression_level = self.__STANDARD_COMPRESSION
         comp_level_val = ctypes.c_int64(compression_level)
@@ -440,12 +521,12 @@ class BlobSession:
                                            cb_statistics,
                                            ctypes.byref(statistics_ptr))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return ""
 
-        files_saved = self.__read_array()
-        print(f"Finished saving {len(files_saved)} files to version.")
+        print(f"Finished creating new version.")
 
-        return statistics_ptr.value.decode(self._ENCODING), files_saved
+        return statistics_ptr.value.decode(self._ENCODING)
 
     def read_files_from_version(self, overwrite_existing_files: bool, paths: list[str]):
         """
@@ -457,13 +538,18 @@ class BlobSession:
         :param overwrite_existing_files: If files already on disk should be replaced by versioned file
         :param paths: a list of limiting paths to check against
         """
+        if self.error:
+            return
+
         self.__write_array(paths)
         overwrite = ctypes.c_int64(1 if overwrite_existing_files else 0)
 
         cb_statistics = self.get_stat_func()
         success = self._lib.ReadFromVersion(overwrite, cb_statistics)
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return
+
         print("Finished restoring desired files.")
 
     def estimate_files_read(self, overwrite_existing_files: bool, paths: list[str]) -> list[str]:
@@ -474,12 +560,16 @@ class BlobSession:
         :param paths: a list of limiting paths to check against
         :return: a list of files that would be restored under the given conditions
         """
+        if self.error:
+            return []
+
         self.__write_array(paths)
         overwrite = ctypes.c_int64(1 if overwrite_existing_files else 0)
 
         success = self._lib.EstimateRead(overwrite)
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return []
 
         return self.__read_array()
 
@@ -493,10 +583,13 @@ class BlobSession:
         :param name: the name of the archive
         :param folder: the path to the folder where the archive should be created
         """
+        if self.error:
+            return
+
         success = self._lib.CreateArchive(name.encode(self._ENCODING),
                                           folder.encode(self._ENCODING))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
 
     def add_group_to_archive(self, group_name: str, path_prefix: str, glob_path: str):
         """
@@ -508,6 +601,9 @@ class BlobSession:
         :param path_prefix: the prefix to strip from each path when storing
         :param glob_path: the glob command for paths to compress into the group
         """
+        if self.error:
+            return
+
         cb_statistics = self.get_stat_func()
         self.__write_array([path for path in glob.glob(glob_path, recursive=True, include_hidden=True)])
         success = self._lib.AddNewGroup(group_name.encode(self._ENCODING),
@@ -515,7 +611,7 @@ class BlobSession:
                                         cb_statistics)
         print(f"Added Group '{group_name}' to archive.")
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
 
     def load_archive(self, folder: str) -> tuple[list[str], str]:
         """
@@ -524,11 +620,15 @@ class BlobSession:
         :param folder: the path to the folder containing the archive
         :return: the list of group names contained in the archive and the archive name
         """
+        if self.error:
+            return [], ""
+
         name_ptr = ctypes.c_char_p(None)
 
         success = self._lib.LoadArchive(folder.encode(self._ENCODING), ctypes.byref(name_ptr))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return [], ""
         return self.__read_array(), name_ptr.value.decode(self._ENCODING)
 
     def read_archive_group_files(self, group_name: str) -> list[str]:
@@ -538,9 +638,14 @@ class BlobSession:
         :param group_name: the name of the group
         :return: the list of file paths contained in the group of the archive
         """
+        if self.error:
+            return []
+
         success = self._lib.ReadArchiveGroup(group_name.encode(self._ENCODING))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return []
+
         return self.__read_array()
 
     def read_archive(self, prefix_mapping: dict[str, str | None]):
@@ -551,6 +656,9 @@ class BlobSession:
 
         :param prefix_mapping: a dict of group_name -> target prefix string, or None to skip
         """
+        if self.error:
+            return
+
         buffer_array = [(ctypes.create_string_buffer(k.encode(self._ENCODING)),
                          ctypes.create_string_buffer(v.encode(self._ENCODING))
                         if v is not None else None)
@@ -582,17 +690,21 @@ class BlobSession:
         success = self._lib.ReadArchive(cb_keys, cb_values, cb_statistics)
         print("Read all specified files from Archive.")
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
 
     def close_archive(self) -> str:
         """
         Saves the archive overview to disk and closes the blob.
         """
+        if self.error:
+            return ""
+
         statistics_ptr = ctypes.c_char_p(None)
 
         success = self._lib.CloseArchive(ctypes.byref(statistics_ptr))
         if not success:
-            raise RuntimeError(self.__read_error())
+            self.__error(self.__read_error())
+            return ""
 
         return statistics_ptr.value.decode(self._ENCODING)
 
