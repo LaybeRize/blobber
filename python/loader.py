@@ -61,6 +61,10 @@ def _load_lib() -> ctypes.CDLL:
     lib.CloseOverview.argtypes = []
     lib.CloseOverview.restype = ctypes.c_int64
 
+    # int64_t CleanOverviewFolder(int64_t* deletedFileCounter);
+    lib.CleanOverviewFolder.argtypes = [ctypes.POINTER(ctypes.c_int64)]
+    lib.CleanOverviewFolder.restype = ctypes.c_int64
+
     # int64_t RegisterNewRepository(char* repositoryName);
     lib.RegisterNewRepository.argtypes = [ctypes.c_char_p]
     lib.RegisterNewRepository.restype = ctypes.c_int64
@@ -69,6 +73,14 @@ def _load_lib() -> ctypes.CDLL:
     lib.LoadRepository.argtypes = [ctypes.c_char_p]
     lib.LoadRepository.restype = ctypes.c_int64
 
+    # int64_t CloseRepository();
+    lib.CloseRepository.argtypes = []
+    lib.CloseRepository.restype = ctypes.c_int64
+
+    # int64_t DeleteRepository(char* repositoryName);
+    lib.DeleteRepository.argtypes = [ctypes.c_char_p]
+    lib.DeleteRepository.restype = ctypes.c_int64
+
     # int64_t RegisterNewVersion(char* versionName);
     lib.RegisterNewVersion.argtypes = [ctypes.c_char_p]
     lib.RegisterNewVersion.restype = ctypes.c_int64
@@ -76,6 +88,14 @@ def _load_lib() -> ctypes.CDLL:
     # int64_t LoadVersion(char* versionName);
     lib.LoadVersion.argtypes = [ctypes.c_char_p]
     lib.LoadVersion.restype = ctypes.c_int64
+
+    # int64_t CloseVersion();
+    lib.CloseVersion.argtypes = []
+    lib.CloseVersion.restype = ctypes.c_int64
+
+    # int64_t DeleteVersion(char* versionName);
+    lib.DeleteVersion.argtypes = [ctypes.c_char_p]
+    lib.DeleteVersion.restype = ctypes.c_int64
 
     # int64_t LoadAndSetPreviousVersion(char* previousVersionName);
     lib.LoadAndSetPreviousVersion.argtypes = [ctypes.c_char_p]
@@ -373,6 +393,21 @@ class BlobSession:
         self.current_repo_name = None
         self.current_version_name = None
 
+    def clean_overview(self) -> int:
+        """
+        Clean all files that are not part of the overview from the overview folder.
+        """
+        if self.error:
+            return 0
+
+        files_deleted = ctypes.c_int64(0)
+
+        success = self._lib.CleanOverviewFolder(ctypes.byref(files_deleted))
+        if not success:
+            self.__error(self.__read_error())
+            return 0
+        return files_deleted.value
+
     def new_repo(self, repo_name: str) -> list[str]:
         """
         Tries to create a new repository under the given name. If the name is taken, the function will raise
@@ -409,6 +444,33 @@ class BlobSession:
 
         self.current_repo_name = repo_name
         return self.__read_array()
+
+    def close_repo(self):
+        """
+        Tries to close the currently opened repository.
+        The function will raise a RuntimeError with the message containing the reason if it fails to close
+        currently opened repository and version.
+        """
+        if self.error:
+            return
+
+        success = self._lib.CloseRepository()
+        if not success:
+            self.__error(self.__read_error())
+
+    def delete_repo(self, repo_name: str):
+        """
+        Tries to delete repository from disk by the given name. If the name is not part of the repo list,
+        the function will raise a RuntimeError with the message containing the reason.
+
+        :param repo_name: the name of the repository
+        """
+        if self.error:
+            return
+
+        success = self._lib.DeleteRepository(repo_name.encode(self._ENCODING))
+        if not success:
+            self.__error(self.__read_error())
 
     def create_new_version(self, version_name, glob_commands: list[str]):
         """
@@ -484,6 +546,33 @@ class BlobSession:
             return []
 
         return self.__read_array()
+
+    def close_version(self):
+        """
+        Tries to close the currently opened version.
+        The function will raise a RuntimeError with the message containing the reason if it fails to close
+        currently opened version.
+        """
+        if self.error:
+            return
+
+        success = self._lib.CloseVersion()
+        if not success:
+            self.__error(self.__read_error())
+
+    def delete_version(self, version_name: str):
+        """
+        Tries to delete version from disk by the given name. If the name is not part of the version list,
+        the function will raise a RuntimeError with the message containing the reason.
+
+        :param version_name: the name of the version
+        """
+        if self.error:
+            return
+
+        success = self._lib.DeleteVersion(version_name.encode(self._ENCODING))
+        if not success:
+            self.__error(self.__read_error())
 
     def __set_previous_version(self, version_name: str):
         """

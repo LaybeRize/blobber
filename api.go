@@ -398,6 +398,8 @@ func CloseRepositoryGo() int64 {
 	if err != nil {
 		return setErr(fmt.Sprintf("CloseRepository: %v", err))
 	}
+	currentRepo = nil
+	currentVersion = nil
 	return rcOK
 }
 
@@ -522,6 +524,7 @@ func CloseVersionGo() int64 {
 	if err != nil {
 		return setErr(fmt.Sprintf("CloseVersion: %v", err))
 	}
+	currentVersion = nil
 	return rcOK
 }
 
