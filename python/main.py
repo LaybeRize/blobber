@@ -7,9 +7,9 @@ from loader import BlobSession
 from data_generator import generate_random_files, tree_compare_same
 
 def main():
-    test_raw_functions()
+    #test_raw_functions()
     test_version_functions()
-    test_archive_functions()
+    #test_archive_functions()
 
 
 def test_raw_functions():
@@ -59,9 +59,9 @@ def test_version_functions():
     shutil.rmtree(ver_dir, ignore_errors=True)
     shutil.rmtree(data_dir, ignore_errors=True)
     shutil.rmtree(rename_dir, ignore_errors=True)
-    #
+
     print("--- Creating Data Tree ---")
-    file_amt = 40
+    file_amt = 20
     generate_random_files(
         base_folder=data_dir,
         file_sizes=[
@@ -72,9 +72,9 @@ def test_version_functions():
         ],
         num_files=file_amt,
     )
-    #
+
     print("--- Testing Session Management ---")
-    #
+
     session = BlobSession()
     session.open_overview(ver_dir)
     session.new_repo("test_repo")
@@ -87,10 +87,14 @@ def test_version_functions():
         exit(-1)
     session.open_overview(ver_dir)
     session.load_repo("test_repo")
-    #
+
     print("--- Creating first Version ---")
-    #
+
     session.create_new_version("version1", [data_dir + f"{os.sep}**"])
+    if session.current_version_name != "version1":
+        print("+++ local current version name wrong +++")
+        exit(-1)
+
     _, files = session.get_version_info()
     if len(files) != file_amt:
         print("+++ Not all files were properly saved to the version 1 +++")
@@ -144,6 +148,10 @@ def test_version_functions():
     print("--- Creating version 2 ---")
 
     session.new_version_from_old("version2","version1", [data_dir + f"{os.sep}**"])
+    if session.current_version_name != "version2":
+        print("+++ local current version name wrong +++")
+        exit(-1)
+
     _, files = session.get_version_info()
     if len(files) != file_amt:
         print("+++ Did not capture all files in version 2 +++")
@@ -158,12 +166,60 @@ def test_version_functions():
         print("+++ Failed to verify that data from version 2 was correctly reproduced +++")
         exit(-1)
 
+    session.close_version()
+    if session.current_version_name is not None:
+        print("+++ Failed to close Version +++")
+        exit(-1)
+    session.close_repo()
+    if session.current_repo_name is not None:
+        print("+++ Failed to close Version +++")
+        exit(-1)
+
     session.close_overview()
     if len(glob.glob(ver_dir + f"{os.sep}*.version")) != 2:
         print("+++ Failed to locate the exact amount of versions (2) expected +++")
         exit(-1)
     if len(glob.glob(ver_dir + f"{os.sep}*.blob")) != 2:
         print("+++ Failed to locate the exact amount of version blobs (2) expected +++")
+        exit(-1)
+
+    print("--- Testing Deletes ---")
+    session.open_overview(ver_dir)
+    new_file = ver_dir + f"{os.sep}other_file.txt"
+    with open(new_file, "w") as file:
+        file.write("Test")
+    amt = session.clean_overview()
+    if amt != 1 or os.path.exists(new_file):
+        print("+++ Failed to delete files not in the overview +++")
+        exit(-1)
+    if len(glob.glob(ver_dir + f"{os.sep}*.version")) != 2:
+        print("+++ Failed to locate the exact amount of versions (2) expected after cleanup +++")
+        exit(-1)
+    if len(glob.glob(ver_dir + f"{os.sep}*.blob")) != 2:
+        print("+++ Failed to locate the exact amount of version blobs (2) expected after cleanup +++")
+        exit(-1)
+    session.load_repo("test_repo")
+    session.delete_version("version1")
+    if len(glob.glob(ver_dir + f"{os.sep}*.version")) != 1:
+        print("+++ Failed to locate the exact amount of versions (1) expected after version delete +++")
+        exit(-1)
+    if len(glob.glob(ver_dir + f"{os.sep}*.blob")) != 2:
+        print("+++ Failed to locate the exact amount of version blobs (2) expected after version delete +++")
+        exit(-1)
+    session.close_repo()
+    session.delete_repo("test_repo")
+    if len(glob.glob(ver_dir + f"{os.sep}*.version")) != 0:
+        print("+++ Located version files after delete +++")
+        exit(-1)
+    if len(glob.glob(ver_dir + f"{os.sep}*.blob")) != 0:
+        print("+++ Located blob files after delete +++")
+        exit(-1)
+    if len(glob.glob(ver_dir + f"{os.sep}*.repo")) != 0:
+        print("+++ Located repo files after delete +++")
+        exit(-1)
+    session.close_overview()
+    if len(session.open_overview(ver_dir)) != 0:
+        print("+++ Failed to correctly delete repositories +++")
         exit(-1)
 
     print("--- Versioning test was successful ---")

@@ -458,6 +458,9 @@ class BlobSession:
         if not success:
             self.__error(self.__read_error())
 
+        self.current_repo_name = None
+        self.current_version_name = None
+
     def delete_repo(self, repo_name: str):
         """
         Tries to delete repository from disk by the given name. If the name is not part of the repo list,
@@ -471,6 +474,9 @@ class BlobSession:
         success = self._lib.DeleteRepository(repo_name.encode(self._ENCODING))
         if not success:
             self.__error(self.__read_error())
+
+        self.current_repo_name = None
+        self.current_version_name = None
 
     def create_new_version(self, version_name, glob_commands: list[str]):
         """
@@ -545,6 +551,7 @@ class BlobSession:
             self.__error(self.__read_error())
             return []
 
+        self.current_version_name = version_name
         return self.__read_array()
 
     def close_version(self):
@@ -559,6 +566,8 @@ class BlobSession:
         success = self._lib.CloseVersion()
         if not success:
             self.__error(self.__read_error())
+
+        self.current_version_name = None
 
     def delete_version(self, version_name: str):
         """
