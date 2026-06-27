@@ -149,6 +149,15 @@ func CloseOverview() C.int64_t {
 	return C.int64_t(CloseOverviewGo())
 }
 
+//export CleanOverviewFolder
+func CleanOverviewFolder(
+	deletedFileCounter *C.int64_t, // [out]
+) C.int64_t {
+	retCode, files := CleanOverviewFolderGo()
+	*(*int64)(unsafe.Pointer(deletedFileCounter)) = files
+	return C.int64_t(retCode)
+}
+
 //export RegisterNewRepository
 func RegisterNewRepository(
 	repositoryName *C.char, // [in]
@@ -171,6 +180,18 @@ func LoadRepository(
 	return C.int64_t(retCode)
 }
 
+//export CloseRepository
+func CloseRepository() C.int64_t {
+	return C.int64_t(CloseRepositoryGo())
+}
+
+//export DeleteRepository
+func DeleteRepository(
+	repositoryName *C.char, // [in]
+) C.int64_t {
+	return C.int64_t(DeleteRepositoryGo(C.GoString(repositoryName)))
+}
+
 //export RegisterNewVersion
 func RegisterNewVersion(
 	versionName *C.char, // [in]
@@ -191,6 +212,18 @@ func LoadVersion(
 		streamingValues = &tempArray
 	}
 	return C.int64_t(retCode)
+}
+
+//export CloseVersion
+func CloseVersion() C.int64_t {
+	return C.int64_t(CloseVersionGo())
+}
+
+//export DeleteVersion
+func DeleteVersion(
+	versionName *C.char, // [in]
+) C.int64_t {
+	return C.int64_t(DeleteVersionGo(C.GoString(versionName)))
 }
 
 //export LoadAndSetPreviousVersion

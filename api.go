@@ -258,6 +258,73 @@ func CloseOverviewGo() int64 {
 	return rcOK
 }
 
+// CleanOverviewFolderGo scans the store folder and removes every file that is not
+// explicitly accounted for by the overview:
+//
+//   - general.overview          — always kept
+//   - <repoBase>.repo           — one per known repository
+//   - <repoBase>_<ver>.version  — one per known version in that repository
+//   - <repoBase>_<blob>.blob    — one per blob referenced in BlobToVersionMap
+//
+// Any other file in the store folder is considered an orphan and deleted.
+// Returns the number of files deleted.
+func CleanOverviewFolderGo() (int64, int64) {
+	if currentOverview == nil {
+		return setErr("CleanOverviewFolder: no overview loaded"), 0
+	}
+	// Close any open repo/version first so manifests are flushed before we read them.
+	if currentRepo != nil || currentVersion != nil {
+		return setErr("CleanOverviewFolder: flush the active repository/version (switch away) before cleaning"), 0
+	}
+
+	// Build the set of every file we expect to find.
+	kept := make(map[string]struct{})
+	kept[OverviewName] = struct{}{}
+
+	for i, repoName := range currentOverview.RepositoryNames {
+		repoBase := currentOverview.RepositoryPaths[i]
+
+		// The .repo manifest.
+		kept[repoBase+RepositorySuffix] = struct{}{}
+
+		// Load the repo to enumerate its versions and blobs.
+		repo := &RepositoryManifest{RepositoryName: repoName}
+		repoPath := filepath.Join(currentOverviewFolder, repoBase) + RepositorySuffix
+		if err := repo.StreamFromFile(repoPath); err != nil {
+			return setErr(fmt.Sprintf("CleanOverviewFolder: reading repo %q: %v", repoName, err)), 0
+		}
+
+		for _, versionPath := range repo.VersionPaths {
+			kept[repoBase+"_"+versionPath+VersionSuffix] = struct{}{}
+		}
+
+		for blobPath := range repo.BlobToVersionMap {
+			kept[repoBase+"_"+blobPath+BlobSuffix] = struct{}{}
+		}
+	}
+
+	// Walk the store folder and delete anything not in the kept set.
+	entries, err := os.ReadDir(currentOverviewFolder)
+	if err != nil {
+		return setErr(fmt.Sprintf("CleanOverviewFolder: reading store folder: %v", err)), 0
+	}
+
+	var deleted int64
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if _, ok := kept[e.Name()]; !ok {
+			if err = os.Remove(filepath.Join(currentOverviewFolder, e.Name())); err != nil && !os.IsNotExist(err) {
+				return setErr(fmt.Sprintf("CleanOverviewFolder: removing orphan %q: %v", e.Name(), err)), deleted
+			}
+			deleted++
+		}
+	}
+
+	return rcOK, deleted
+}
+
 func RegisterNewRepositoryGo(repoName string) int64 {
 	if currentOverview == nil {
 		return setErr("RegisterNewRepository: can't register a repository without an open overview")
@@ -322,6 +389,77 @@ func LoadRepositoryGo(repoName string) int64 {
 	return rcOK
 }
 
+func CloseRepositoryGo() int64 {
+	err := closeRepo()
+	if err != nil {
+		return setErr(fmt.Sprintf("CloseRepository: %v", err))
+	}
+	err = closeVersion()
+	if err != nil {
+		return setErr(fmt.Sprintf("CloseRepository: %v", err))
+	}
+	return rcOK
+}
+
+// DeleteRepositoryGo removes a repository from the overview entirely.
+// It deletes the .repo manifest and every .version/.blob file that belongs
+// to the repository (all share the same repoBase prefix in the store folder).
+// The repository to delete must not be currently loaded.
+func DeleteRepositoryGo(repoName string) int64 {
+	if currentOverview == nil {
+		return setErr("DeleteRepository: no overview loaded")
+	}
+	if currentOverview.GetPath(repoName) == nil {
+		return setErr(fmt.Sprintf("DeleteRepository: repository %q not found", repoName))
+	}
+	if currentRepo != nil && currentRepo.RepositoryName == repoName {
+		return setErr("DeleteRepository: cannot delete the currently loaded repository — switch away first")
+	}
+
+	repoBase := *currentOverview.GetPath(repoName)
+	prefix := filepath.Join(currentOverviewFolder, repoBase)
+
+	// Remove the .repo manifest.
+	repoFile := prefix + RepositorySuffix
+	if err := os.Remove(repoFile); err != nil && !os.IsNotExist(err) {
+		return setErr(fmt.Sprintf("DeleteRepository: removing repo file: %v", err))
+	}
+
+	// Remove every file in the store folder whose name starts with repoBase
+	// (covers all _<versionPath>.version and _<blobPath>.blob files).
+	entries, err := os.ReadDir(currentOverviewFolder)
+	if err != nil {
+		return setErr(fmt.Sprintf("DeleteRepository: reading store folder: %v", err))
+	}
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		// Files are stored as "<repoBase>_<path>.version" or "<repoBase>_<path>.blob".
+		// filepath.Join gave us the full path prefix; use the base part for matching.
+		if strings.HasPrefix(name, repoBase+"_") &&
+			(strings.HasSuffix(name, VersionSuffix) || strings.HasSuffix(name, BlobSuffix)) {
+			if err = os.Remove(filepath.Join(currentOverviewFolder, name)); err != nil && !os.IsNotExist(err) {
+				return setErr(fmt.Sprintf("DeleteRepository: removing %q: %v", name, err))
+			}
+		}
+	}
+
+	// Remove from the overview.
+	idx := slices.Index(currentOverview.RepositoryNames, repoName)
+	currentOverview.RepositoryNames = slices.Delete(currentOverview.RepositoryNames, idx, idx+1)
+	currentOverview.RepositoryPaths = slices.Delete(currentOverview.RepositoryPaths, idx, idx+1)
+
+	// Persist the overview (caller will call CloseOverviewGo, but write now so
+	// a crash between here and there doesn't leave a dangling reference).
+	if err = currentOverview.StreamToFile(filepath.Join(currentOverviewFolder, OverviewName)); err != nil {
+		return setErr(fmt.Sprintf("DeleteRepository: saving overview: %v", err))
+	}
+
+	return rcOK
+}
+
 func RegisterNewVersionGo(versionName string) int64 {
 	if currentOverview == nil || currentRepo == nil {
 		return setErr("RegisterNewVersion: can't register a version without an open overview + repo")
@@ -375,6 +513,80 @@ func LoadVersionGo(versionName string) int64 {
 	}
 	previousVersion = nil
 	previousFilesMap = nil
+
+	return rcOK
+}
+
+func CloseVersionGo() int64 {
+	err := closeVersion()
+	if err != nil {
+		return setErr(fmt.Sprintf("CloseVersion: %v", err))
+	}
+	return rcOK
+}
+
+func DeleteVersionGo(versionName string) int64 {
+	if currentOverview == nil || currentRepo == nil {
+		return setErr("DeleteVersion: no overview/repository loaded")
+	}
+	if currentRepo.GetPath(versionName) == nil {
+		return setErr(fmt.Sprintf("DeleteVersion: version %q not found in repository", versionName))
+	}
+	if currentVersion != nil && currentVersion.VersionName == versionName {
+		return setErr("DeleteVersion: cannot delete the currently active version — switch away first")
+	}
+
+	versionPath := *currentRepo.GetPath(versionName)
+	repoBase := *currentOverview.GetPath(currentRepo.RepositoryName)
+
+	// Load the target version so we know its own BlobPath.
+	target := &VersionManifest{}
+	if err := target.StreamFromFile(getVersionPathFrom(versionName)); err != nil {
+		return setErr(fmt.Sprintf("DeleteVersion: could not read version manifest: %v", err))
+	}
+
+	// Remove the .version manifest file.
+	versionFile := filepath.Join(currentOverviewFolder, repoBase) +
+		"_" + versionPath + VersionSuffix
+	if err := os.Remove(versionFile); err != nil && !os.IsNotExist(err) {
+		return setErr(fmt.Sprintf("DeleteVersion: removing version file: %v", err))
+	}
+
+	// Remove the version from the repo manifest's name/path slices.
+	idx := slices.Index(currentRepo.VersionNames, versionName)
+	currentRepo.VersionNames = slices.Delete(currentRepo.VersionNames, idx, idx+1)
+	currentRepo.VersionPaths = slices.Delete(currentRepo.VersionPaths, idx, idx+1)
+
+	// Update BlobToVersionMap: remove this version from every blob it referenced.
+	// Collect all blob paths this version touches (own blob + any delta blobs from
+	// older versions whose files were reused).
+	referencedBlobs := make(map[string]struct{})
+	referencedBlobs[target.BlobPath] = struct{}{}
+	for _, f := range target.Files {
+		referencedBlobs[f.BlobPath] = struct{}{}
+	}
+
+	for blob := range referencedBlobs {
+		versions := currentRepo.BlobToVersionMap[blob]
+		if newVersions := slices.DeleteFunc(versions, func(v string) bool {
+			return v == versionPath
+		}); len(newVersions) == 0 {
+			delete(currentRepo.BlobToVersionMap, blob)
+			// No version references this blob anymore — delete the .blob file.
+			blobFile := filepath.Join(currentOverviewFolder, repoBase) +
+				"_" + blob + BlobSuffix
+			if err := os.Remove(blobFile); err != nil && !os.IsNotExist(err) {
+				return setErr(fmt.Sprintf("DeleteVersion: removing orphaned blob %q: %v", blob, err))
+			}
+		} else {
+			currentRepo.BlobToVersionMap[blob] = newVersions
+		}
+	}
+
+	// Persist the updated repo manifest.
+	if err := currentRepo.StreamToFile(getRepoPath()); err != nil {
+		return setErr(fmt.Sprintf("DeleteVersion: saving repository manifest: %v", err))
+	}
 
 	return rcOK
 }
@@ -488,6 +700,15 @@ func WriteToVersionGo(compression *int64,
 
 	internalCallback(pathsProcessed, pathsSaved, bytesProcessed)
 	currentVersion.SortFiles()
+
+	versionPath := *currentRepo.GetPath(currentVersion.VersionName)
+	lastBlob := ""
+	for _, f := range currentVersion.Files {
+		if f.BlobPath != lastBlob {
+			lastBlob = f.BlobPath
+			currentRepo.BlobToVersionMap[lastBlob] = append(currentRepo.BlobToVersionMap[lastBlob], versionPath)
+		}
+	}
 
 	return BlobCloseWithStatisticsGo()
 }
