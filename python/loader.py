@@ -181,15 +181,27 @@ class BlobSession:
             "VERY HIGH": 12,
         }
         self.__STANDARD_COMPRESSION = self.__compression_mapping["MIDDLE"]
+
         self.__raise_error = raise_error
         self.error_message = ""
         self.error = False
+
+        self.current_repo_name = None
+        self.current_version_name = None
 
     def __error(self, error_text: str):
         if self.__raise_error:
             raise RuntimeError(error_text)
         self.error_message = error_text
         self.error = True
+
+    def reset_error(self) -> str | None:
+        if self.error:
+            temp = self.error_message
+            self.error = False
+            self.error_message = ""
+            return temp
+        return None
 
     def set_standard_compression_level(self, map_string: str) -> BlobSession:
         if self.error:
@@ -358,6 +370,9 @@ class BlobSession:
         if not success:
             self.__error(self.__read_error())
 
+        self.current_repo_name = None
+        self.current_version_name = None
+
     def new_repo(self, repo_name: str) -> list[str]:
         """
         Tries to create a new repository under the given name. If the name is taken, the function will raise
@@ -373,6 +388,7 @@ class BlobSession:
         if not success:
             self.__error(self.__read_error())
 
+        self.current_repo_name = repo_name
         return []
 
     def load_repo(self, repo_name: str) -> list[str]:
@@ -391,6 +407,7 @@ class BlobSession:
             self.__error(self.__read_error())
             return []
 
+        self.current_repo_name = repo_name
         return self.__read_array()
 
     def create_new_version(self, version_name, glob_commands: list[str]):
@@ -410,6 +427,7 @@ class BlobSession:
         if self.error:
             return
 
+        self.current_version_name = version_name
         print(f"Compressed files to {statistics} of size.")
 
     def new_version_from_old(self,
@@ -435,6 +453,7 @@ class BlobSession:
         if self.error:
             return
 
+        self.current_version_name = version_name
         print(f"Compressed files to {statistics} of size.")
 
     def __new_version(self, version_name: str):
