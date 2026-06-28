@@ -57,6 +57,7 @@ type RepositoryManifest struct {
 	RepositoryName   string              `json:"repositoryName"`
 	VersionNames     []string            `json:"versionNames"`
 	VersionPaths     []string            `json:"versionPaths"`
+	GlobPaths        []string            `json:"globPaths"`
 	BlobToVersionMap map[string][]string `json:"blobToVersionMap"`
 }
 

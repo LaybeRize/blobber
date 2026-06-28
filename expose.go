@@ -185,6 +185,20 @@ func CloseRepository() C.int64_t {
 	return C.int64_t(CloseRepositoryGo())
 }
 
+//export SetRepositoryGlobList
+func SetRepositoryGlobList() C.int64_t {
+	return C.int64_t(SetRepositoryGlobListGo(*streamingValues))
+}
+
+//export GetRepositoryGlobList
+func GetRepositoryGlobList() C.int64_t {
+	retCode, values := GetRepositoryGlobListGo()
+	if retCode == rcOK {
+		*streamingValues = values
+	}
+	return C.int64_t(retCode)
+}
+
 //export DeleteRepository
 func DeleteRepository(
 	repositoryName *C.char, // [in]

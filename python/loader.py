@@ -77,6 +77,14 @@ def _load_lib() -> ctypes.CDLL:
     lib.CloseRepository.argtypes = []
     lib.CloseRepository.restype = ctypes.c_int64
 
+    # int64_t SetRepositoryGlobList();
+    lib.SetRepositoryGlobList.argtypes = []
+    lib.SetRepositoryGlobList.restype = ctypes.c_int64
+
+    # int64_t GetRepositoryGlobList();
+    lib.GetRepositoryGlobList.argtypes = []
+    lib.GetRepositoryGlobList.restype = ctypes.c_int64
+
     # int64_t DeleteRepository(char* repositoryName);
     lib.DeleteRepository.argtypes = [ctypes.c_char_p]
     lib.DeleteRepository.restype = ctypes.c_int64
@@ -460,6 +468,20 @@ class BlobSession:
 
         self.current_repo_name = None
         self.current_version_name = None
+
+    def set_repo_glob_list(self, items: list[str]):
+        self.__write_array(items)
+        success = self._lib.SetRepositoryGlobList()
+        if not success:
+            self.__error(self.__read_error())
+
+    def get_repo_glob_list(self) -> list[str]:
+        success = self._lib.GetRepositoryGlobList()
+        if not success:
+            self.__error(self.__read_error())
+            return []
+
+        return self.__read_array()
 
     def delete_repo(self, repo_name: str):
         """

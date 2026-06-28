@@ -350,6 +350,7 @@ func RegisterNewRepositoryGo(repoName string) int64 {
 		RepositoryName:   repoName,
 		VersionNames:     make([]string, 0),
 		VersionPaths:     make([]string, 0),
+		GlobPaths:        make([]string, 0),
 		BlobToVersionMap: make(map[string][]string),
 	}
 	currentVersion = nil
@@ -460,6 +461,21 @@ func DeleteRepositoryGo(repoName string) int64 {
 	}
 
 	return rcOK
+}
+
+func SetRepositoryGlobListGo(globList []string) int64 {
+	if currentRepo == nil {
+		return setErr("SetRepositoryGlobList: can't write to an unopened repository")
+	}
+	currentRepo.GlobPaths = globList
+	return rcOK
+}
+
+func GetRepositoryGlobListGo() (int64, []string) {
+	if currentRepo == nil {
+		return setErr("SetRepositoryGlobList: can't write to an unopened repository"), nil
+	}
+	return rcOK, currentRepo.GlobPaths
 }
 
 func RegisterNewVersionGo(versionName string) int64 {
