@@ -618,7 +618,7 @@ class BlobSession:
         if not success:
             self.__error(self.__read_error())
 
-    def get_version_info(self) -> tuple[str, list[str]]:
+    def get_version_info(self, only_info_text: bool = False) -> tuple[str, list[str]]:
         if self.error:
             return "", []
 
@@ -628,7 +628,7 @@ class BlobSession:
             self.__error(self.__read_error())
             return "", []
 
-        return version_info_ptr.value.decode(self._ENCODING), self.__read_array()
+        return version_info_ptr.value.decode(self._ENCODING), [] if only_info_text else self.__read_array()
 
     def __write_to_version(self, glob_commands: list[str], compression_level: int | None = None) -> str:
         """
