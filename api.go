@@ -22,7 +22,10 @@ const (
 	FileUnchanged
 	FileChanged
 
+	Lookahead = 20
+
 	ChunkSize = 4 * 1024 * 1024
+	PreFetch  = 4 * 1024
 
 	rcOK  int64 = 1
 	rcErr int64 = 0
@@ -660,7 +663,11 @@ func WriteToVersionGo(compression *int64,
 	var pathsSaved int64 = 0
 	var bytesProcessed uint64 = 0
 
-	for _, path := range paths {
+	for i, path := range paths {
+		if i+Lookahead < len(paths) {
+			go prewarmFile(paths[i+Lookahead])
+		}
+
 		pathsProcessed += 1
 		if pathsProcessed%localWrapFiles == 0 {
 			if bytesProcessed > localNextBytesStep {
@@ -879,7 +886,10 @@ func AddNewGroupGo(
 	var filesProcessed int64 = 0
 	var bytesWritten uint64 = 0
 
-	for _, filePath := range paths {
+	for i, filePath := range paths {
+		if i+Lookahead < len(paths) {
+			go prewarmFile(paths[i+Lookahead])
+		}
 		// Do it this way so the last callback() function call has at least one variable that is different
 		// from the last call from here.
 		filesProcessed += 1
@@ -1143,4 +1153,14 @@ func timestampBase64() string {
 	buf := make([]byte, 8)
 	binary.BigEndian.PutUint64(buf, uint64(time.Now().UnixNano()))
 	return timeEncoder.EncodeToString(buf)
+}
+
+func prewarmFile(path string) {
+	f, err := os.Open(path)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	var buf [PreFetch]byte
+	_, _ = f.Read(buf[:])
 }

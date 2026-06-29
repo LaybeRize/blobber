@@ -61,7 +61,7 @@ def test_version_functions():
     shutil.rmtree(rename_dir, ignore_errors=True)
 
     print("--- Creating Data Tree ---")
-    file_amt = 20
+    file_amt = 40
     generate_random_files(
         base_folder=data_dir,
         file_sizes=[
@@ -241,7 +241,7 @@ def test_archive_functions():
     shutil.rmtree(data_dir, ignore_errors=True)
     shutil.rmtree(target_dir, ignore_errors=True)
     print("--- Creating Data Tree ---")
-    file_amt = 10
+    file_amt = 20
     generate_random_files(
         base_folder=data_dir+sub_dir_one,
         file_sizes=[
