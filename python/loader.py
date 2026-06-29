@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Final
 import ctypes
 import glob
 import sys
@@ -208,6 +209,7 @@ class BlobSession:
             "HIGH": 9,
             "VERY HIGH": 12,
         }
+        self.COMPRESSION_LIST: Final[list[str]] = [key for key, _ in self.__compression_mapping.items()]
         self.__STANDARD_COMPRESSION = self.__compression_mapping["MIDDLE"]
 
         self.__raise_error = raise_error
