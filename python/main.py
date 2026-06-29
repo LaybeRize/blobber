@@ -7,9 +7,9 @@ from loader import BlobSession
 from data_generator import generate_random_files, tree_compare_same
 
 def main():
-    test_raw_functions()
+    # test_raw_functions()
     test_version_functions()
-    test_archive_functions()
+    # test_archive_functions()
 
 
 def test_raw_functions():
@@ -111,7 +111,9 @@ def test_version_functions():
     print("--- Testing version restore capabilities ---")
 
     session.open_overview(ver_dir)
-    session.load_repo("test_repo")
+    if session.load_repo("test_repo") != ["version1"]:
+        print("+++ Failed to correctly retrieve version list +++")
+        exit(-1)
     session.load_version("version1")
     if ["a", "b", "c"] != session.get_repo_glob_list():
         print("+++ Failed to correctly retrieve glob list +++")

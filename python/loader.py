@@ -730,7 +730,7 @@ class BlobSession:
         if not success:
             self.__error(self.__read_error())
 
-    def add_group_to_archive(self, group_name: str, path_prefix: str, glob_path: str):
+    def add_group_to_archive(self, group_name: str, path_prefix: str, glob_paths: list[str]):
         """
         Compresses the given paths into the open archive blob under the given group name,
         stripping path_prefix from each path to form the stored relative path.
@@ -738,13 +738,16 @@ class BlobSession:
 
         :param group_name: the name of the group to add
         :param path_prefix: the prefix to strip from each path when storing
-        :param glob_path: the glob command for paths to compress into the group
+        :param glob_paths: the glob commands for paths to compress into the group
         """
         if self.error:
             return
 
         cb_statistics = self.get_stat_func()
-        self.__write_array([path for path in glob.glob(glob_path, recursive=True, include_hidden=True)])
+        self.__write_array([])
+        for glob_path in glob_paths:
+            self.__extend_array([path for path in glob.glob(glob_path, recursive=True, include_hidden=True)])
+
         success = self._lib.AddNewGroup(group_name.encode(self._ENCODING),
                                         path_prefix.encode(self._ENCODING),
                                         cb_statistics)

@@ -194,7 +194,7 @@ func SetRepositoryGlobList() C.int64_t {
 func GetRepositoryGlobList() C.int64_t {
 	retCode, values := GetRepositoryGlobListGo()
 	if retCode == rcOK {
-		*streamingValues = values
+		streamingValues = &values
 	}
 	return C.int64_t(retCode)
 }
