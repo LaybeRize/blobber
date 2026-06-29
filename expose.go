@@ -39,6 +39,7 @@ var hashBuffer [1024]byte
 var statisticsBuffer [1024]byte
 var streamingValues *[]string
 var generalTextBuffer [BufferSize + BufferTruncation + 1]byte
+var nameBuffer [64 * 1024]byte
 
 // -----------------------------------------------------------------------------
 // DIRECT CALL FUNCTIONS
@@ -323,9 +324,10 @@ func EstimateRead(
 //export CreateArchive
 func CreateArchive(
 	name *C.char, // [in]
+	creator *C.char, // [in]
 	folder *C.char, // [in]
 ) C.int64_t {
-	return C.int64_t(CreateArchiveGo(C.GoString(name), C.GoString(folder)))
+	return C.int64_t(CreateArchiveGo(C.GoString(name), C.GoString(creator), C.GoString(folder)))
 }
 
 // AddNewGroup compresses the files at the paths provided via StreamArrayToDLL into the open archive
@@ -351,11 +353,13 @@ func AddNewGroup(
 func LoadArchive(
 	folder *C.char, // [in]
 	archiveName **C.char, // [out] Do not preallocate
+	archiveCreator **C.char, // [out] Do not preallocate
 ) C.int64_t {
-	retCode, groups, name := LoadArchiveGo(C.GoString(folder))
+	retCode, groups, name, creator := LoadArchiveGo(C.GoString(folder))
 	if retCode == rcOK {
 		streamingValues = &groups
 		writeDoublePointer(archiveName, &generalTextBuffer[0], name)
+		writeDoublePointer(archiveCreator, &nameBuffer[0], creator)
 	}
 	return C.int64_t(retCode)
 }

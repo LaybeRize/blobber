@@ -264,7 +264,7 @@ def test_archive_functions():
     )
     print("--- Testing Archive Creation ---")
     session = BlobSession()
-    session.create_archive("Test Archive", archive_dir)
+    session.create_archive("Test Archive", "TheCREATOR", archive_dir)
     session.add_group_to_archive("Group 1", data_dir+sub_dir_one, [data_dir+sub_dir_one + f"{os.sep}**"])
     session.add_group_to_archive("Group 2", data_dir+sub_dir_two, [data_dir+sub_dir_two + f"{os.sep}**"])
     session.close_archive()
@@ -276,12 +276,12 @@ def test_archive_functions():
         exit(-1)
 
     print("--- Testing Archive Restoration ---")
-    groups, name = session.load_archive(archive_dir)
+    groups, name, creator = session.load_archive(archive_dir)
     if groups != ["Group 1", "Group 2"]:
         print("+++ Unexpected list of groups +++")
         exit(-1)
-    if name != "Test Archive":
-        print("+++ Unexpected name for Archive +++")
+    if name != "Test Archive" or creator != "TheCREATOR":
+        print("+++ Unexpected name or creator for Archive +++")
         exit(-1)
 
     file_list = session.read_archive_group_files("Group 1")

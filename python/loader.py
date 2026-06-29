@@ -714,18 +714,20 @@ class BlobSession:
 
     # --------------- Archive Functions ---------------
 
-    def create_archive(self, name: str, folder: str):
+    def create_archive(self, name: str, creator: str, folder: str):
         """
         Creates a new archive with the given name at the given folder path.
         Opens a blob for writing into that folder.
 
         :param name: the name of the archive
+        :param creator: the name of the creator of the archive
         :param folder: the path to the folder where the archive should be created
         """
         if self.error:
             return
 
         success = self._lib.CreateArchive(name.encode(self._ENCODING),
+                                          creator.encode(self._ENCODING),
                                           folder.encode(self._ENCODING))
         if not success:
             self.__error(self.__read_error())
@@ -755,23 +757,24 @@ class BlobSession:
         if not success:
             self.__error(self.__read_error())
 
-    def load_archive(self, folder: str) -> tuple[list[str], str]:
+    def load_archive(self, folder: str) -> tuple[list[str], str, str]:
         """
         Loads an existing archive from the given folder, opening the blob for reading.
 
         :param folder: the path to the folder containing the archive
-        :return: the list of group names contained in the archive and the archive name
+        :return: the list of group names contained in the archive and the archive name and the archive creator
         """
         if self.error:
-            return [], ""
+            return [], "", ""
 
         name_ptr = ctypes.c_char_p(None)
+        creator_ptr = ctypes.c_char_p(None)
 
-        success = self._lib.LoadArchive(folder.encode(self._ENCODING), ctypes.byref(name_ptr))
+        success = self._lib.LoadArchive(folder.encode(self._ENCODING), ctypes.byref(name_ptr), ctypes.byref(creator_ptr))
         if not success:
             self.__error(self.__read_error())
-            return [], ""
-        return self.__read_array(), name_ptr.value.decode(self._ENCODING)
+            return [], "", ""
+        return self.__read_array(), name_ptr.value.decode(self._ENCODING), creator_ptr.value.decode(self._ENCODING)
 
     def read_archive_group_files(self, group_name: str) -> list[str]:
         """

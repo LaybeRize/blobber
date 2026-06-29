@@ -512,7 +512,7 @@ func sessionRead(args []string, estimateOnly bool) {
 // -----------------------------------------------------------------------------
 // ARCHIVE blobber archive <sub-command> [args...]
 //
-//   blobber archive <folder> create <name>
+//   blobber archive <folder> create <name> <creator>
 //   blobber archive <folder> add-group <group-name> <path-prefix> <path|dir>...
 //   blobber archive <folder> load
 //   blobber archive <folder> extract [--skip <group>]... [--map <group>=<prefix>]...
@@ -530,7 +530,7 @@ func cmdArchive(args []string) {
 	switch sub {
 	case "load":
 		// blobber archive <folder> load  — prints the group list
-		retCode, groups, name := LoadArchiveGo(folder)
+		retCode, groups, name, creator := LoadArchiveGo(folder)
 		if retCode != rcOK {
 			fatalf("load archive: %s\n", errorMsg)
 		}
@@ -538,6 +538,7 @@ func cmdArchive(args []string) {
 			fatalf("close archive: %s\n", errorMsg)
 		}
 		fmt.Println("Archive Name: ", name)
+		fmt.Println("Creator: ", creator)
 		fmt.Println("Groups:")
 		if len(groups) == 0 {
 			fmt.Println("(no groups)")
@@ -549,7 +550,7 @@ func cmdArchive(args []string) {
 
 	case "extract":
 		// blobber archive <folder> extract [--skip <group>]... [--map <group>=<prefix>]...
-		retCode, groups, _ := LoadArchiveGo(folder)
+		retCode, groups, _, _ := LoadArchiveGo(folder)
 		if retCode != rcOK {
 			fatalf("load archive for extraction: %s\n", errorMsg)
 		}
@@ -623,16 +624,16 @@ func cmdArchiveSession(args []string) {
 			printArchiveStatus(folder)
 
 		case "create":
-			// create <name>
-			if len(parts) < 2 {
-				sessionErr("usage: create <name>")
+			// create <name> <creator>
+			if len(parts) < 3 {
+				sessionErr("usage: create <name> <creator>")
 				continue
 			}
 			if currentArchive != nil {
 				sessionErr("an archive is already open — close it first with 'exit' or 'close'")
 				continue
 			}
-			if CreateArchiveGo(parts[1], folder) != rcOK {
+			if CreateArchiveGo(parts[1], parts[2], folder) != rcOK {
 				sessionErr(errorMsg)
 				continue
 			}
@@ -644,12 +645,12 @@ func cmdArchiveSession(args []string) {
 				sessionErr("an archive is already open — close it first with 'close'")
 				continue
 			}
-			retCode, groups, name := LoadArchiveGo(folder)
+			retCode, groups, name, creator := LoadArchiveGo(folder)
 			if retCode != rcOK {
 				sessionErr(errorMsg)
 				continue
 			}
-			fmt.Printf(" Archive %q loaded (%d group(s)).\n", name, len(groups))
+			fmt.Printf(" Archive %q from %q loaded (%d group(s)).\n", name, creator, len(groups))
 			if len(groups) > 0 {
 				for _, g := range groups {
 					fmt.Println("  •", g)
@@ -1135,7 +1136,7 @@ func printArchiveSessionHelp() {
 Archive session commands:
  
   status                   Show current folder, archive name, group and file counts.
-  create <name>            Create a new archive (opens it for writing).
+  create <name> <creator>  Create a new archive (opens it for writing).
   load                     Load the existing archive in the session folder (opens for reading).
   close                    Save the archive to disk and close it.
   groups                   List all groups in the open archive.

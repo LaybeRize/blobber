@@ -15,6 +15,7 @@ type ArchiveFileManifest struct {
 
 type ArchiveOverview struct {
 	ArchiveName string                `json:"archiveName"`
+	Creator     string                `json:"creator"`
 	Path        string                `json:"path"`
 	Groups      []string              `json:"groups"`
 	Files       []ArchiveFileManifest `json:"files"`

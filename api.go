@@ -829,7 +829,7 @@ const (
 
 var currentArchive *ArchiveOverview = nil
 
-func CreateArchiveGo(name string, folder string) int64 {
+func CreateArchiveGo(name string, creator string, folder string) int64 {
 	if currentArchive != nil {
 		return setErr("CreateArchive: an archive is already open, close it first")
 	}
@@ -842,6 +842,7 @@ func CreateArchiveGo(name string, folder string) int64 {
 		ArchiveName: name,
 		Path:        folder,
 		Groups:      make([]string, 0),
+		Creator:     creator,
 		Files:       make([]ArchiveFileManifest, 0),
 	}
 
@@ -932,9 +933,9 @@ func AddNewGroupGo(
 	return rcOK
 }
 
-func LoadArchiveGo(folder string) (int64, []string, string) {
+func LoadArchiveGo(folder string) (int64, []string, string, string) {
 	if currentArchive != nil {
-		return setErr("LoadArchive: an archive is already open, close it first"), nil, ""
+		return setErr("LoadArchive: an archive is already open, close it first"), nil, "", ""
 	}
 
 	overviewPath := filepath.Join(folder, ArchiveOverviewName)
@@ -943,16 +944,16 @@ func LoadArchiveGo(folder string) (int64, []string, string) {
 	if err := currentArchive.StreamFromFile(overviewPath); err != nil {
 		currentArchive = nil
 		return setErr(fmt.Sprintf("LoadArchive: failed to load archive overview from '%s': %v",
-			overviewPath, err)), nil, ""
+			overviewPath, err)), nil, "", ""
 	}
 
 	blobPath := filepath.Join(folder, ArchiveBlobName)
 	if retCode := BlobOpenGo(blobPath, "", nil); retCode != rcOK {
 		currentArchive = nil
-		return setErr(fmt.Sprintf("LoadArchive: failed to open blob for reading: %v", errorMsg)), nil, ""
+		return setErr(fmt.Sprintf("LoadArchive: failed to open blob for reading: %v", errorMsg)), nil, "", ""
 	}
 
-	return rcOK, currentArchive.Groups, currentArchive.ArchiveName
+	return rcOK, currentArchive.Groups, currentArchive.ArchiveName, currentArchive.Creator
 }
 
 func ReadArchiveGroupGo(groupName string) (int64, []string) {
