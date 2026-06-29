@@ -7,9 +7,9 @@ from loader import BlobSession
 from data_generator import generate_random_files, tree_compare_same
 
 def main():
-    # test_raw_functions()
+    test_raw_functions()
     test_version_functions()
-    # test_archive_functions()
+    test_archive_functions()
 
 
 def test_raw_functions():
@@ -265,8 +265,8 @@ def test_archive_functions():
     print("--- Testing Archive Creation ---")
     session = BlobSession()
     session.create_archive("Test Archive", archive_dir)
-    session.add_group_to_archive("Group 1", data_dir+sub_dir_one, data_dir+sub_dir_one + f"{os.sep}**")
-    session.add_group_to_archive("Group 2", data_dir+sub_dir_two, data_dir+sub_dir_two + f"{os.sep}**")
+    session.add_group_to_archive("Group 1", data_dir+sub_dir_one, [data_dir+sub_dir_one + f"{os.sep}**"])
+    session.add_group_to_archive("Group 2", data_dir+sub_dir_two, [data_dir+sub_dir_two + f"{os.sep}**"])
     session.close_archive()
     if not os.path.exists(archive_dir + f"{os.sep}archive.overview"):
         print("+++ Failed to locate the appropriate overview file expected +++")
