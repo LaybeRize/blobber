@@ -500,7 +500,7 @@ class BlobSession:
         self.current_repo_name = None
         self.current_version_name = None
 
-    def create_new_version(self, version_name, glob_commands: list[str]):
+    def create_new_version(self, version_name: str, glob_commands: list[str]):
         """
         Tries to create a version with the given name and glob commands.
         Will raise an exception if the name is already taken.
