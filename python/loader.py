@@ -434,6 +434,7 @@ class BlobSession:
             self.__error(self.__read_error())
 
         self.current_repo_name = repo_name
+        self.current_version_name = None
         return []
 
     def load_repo(self, repo_name: str) -> list[str]:
@@ -453,6 +454,7 @@ class BlobSession:
             return []
 
         self.current_repo_name = repo_name
+        self.current_version_name = None
         return self.__read_array()
 
     def close_repo(self):
