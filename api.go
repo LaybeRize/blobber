@@ -189,7 +189,7 @@ func BlobCloseWithStatisticsGo() (int64, string) {
 		return retCode, "???"
 	}
 	stats, err := os.Stat(blobFile)
-	if err != nil {
+	if err != nil || bytesProcessed == 0 || stats.Size() == 0 {
 		return rcOK, "???"
 	}
 	precent := (float64(stats.Size()) / float64(bytesProcessed)) * 100
